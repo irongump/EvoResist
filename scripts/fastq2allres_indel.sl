@@ -1,0 +1,225 @@
+#!/bin/bash
+
+#SBATCH -p general
+#SBATCH -N 1
+#SBATCH -n 8
+#SBATCH -t 3-00:00:00
+#SBATCH --mem=12G
+
+# 检查是否提供了 SRA 文件列表
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 <sra_list_file>"
+  exit 1
+fi
+
+filelist=$1
+
+# 定义工作目录
+output_dir="output" #default output dir name
+fq_dir="output/fastq"
+SRA="./data/sra"
+bam_dir='output/bam'
+indel_dir='output/indel'
+cfa='output/cfa'
+forup_dir='output/forup'
+#snippy_snv='snippy_snv'
+
+DIRS=("output/fastq" "output/bam" "output/cfa" "output/snv" "output/forup" "output/indel")
+for dir in "${DIRS[@]}"; do
+    if [ ! -d "$dir" ]; then
+      mkdir -p "$dir"
+    fi
+done
+
+# 检查样本是否已成功完成的函数
+is_sample_done() {
+  local sample=$1
+  if [ -s "${indel}/${sample}.indel" ]; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+# 处理每个 SRA 样本
+cat $filelist |while read sample; do 
+  # 检查样本是否已完成
+  if is_sample_done "$sample"; then
+    echo "Sample ${sample} is already completed. Skipping..."
+    continue
+  fi
+
+  module add sratoolkit/3.0.7
+  # 检查是否存在 fastq 文件
+  if [ -f ${fq_dir}/${sample}_1.fastq.gz ] || [ -f ${fq_dir}/${sample}.fastq.gz ]; then
+    echo "Fastq files for ${sample} exist. Skipping SRA extraction..."
+  else
+    # 从 SRA 文件解压 fastq
+    echo "Extracting fastq files for ${sample} from SRA..."
+    if [ -f "${SRA}/${sample}/${sample}.sra" ]; then
+      fastq-dump -split-3 --gzip -O ${fq_dir} ${SRA}/${sample}/${sample}.sra
+    elif [ -f "${SRA}/${sample}/${sample}.sralite" ]; then
+      fastq-dump -split-3 --gzip -O ${fq_dir} ${SRA}/${sample}/${sample}.sralite
+    else
+      echo "SRA file for ${sample} not found. Skipping..."
+      continue
+    fi
+  fi
+  module purge
+  # 进行后续处理
+  fq1=${fq_dir}/${sample}_1.fastq.gz
+  fq2=${fq_dir}/${sample}_2.fastq.gz
+  sfq=${fq_dir}/${sample}.fastq.gz
+
+  if [ -f "$fq2" ]; then
+    echo "Processing paired-end reads for ${sample}..."
+    fq1_tr=${fq_dir}/${sample}_tr_1.fq
+    fq2_tr=${fq_dir}/${sample}_tr_2.fq
+    fq3_tr=${fq_dir}/${sample}_tr_S.fq
+    sai1=${fq_dir}/${sample}_R1.sai
+    sai2=${fq_dir}/${sample}_R2.sai
+    sai3=${fq_dir}/${sample}_S.sai
+    samp=${bam_dir}/${sample}.paired.sam
+    sams=${bam_dir}/${sample}.single.sam
+    bamp=${bam_dir}/${sample}.paired.bam
+    bams=${bam_dir}/${sample}.single.bam
+    bamm=${bam_dir}/${sample}.merge.bam
+    sortbam=${bam_dir}/${sample}.sort.bam
+    pileup=${snv}/${sample}.pileup
+    var=${snv}/${sample}.varscan
+    cns=${snv}/${sample}.cns
+    ppe=${snv}/${sample}.ppe
+    format=${snv}/${sample}.for
+    forup=${forup_dir}/${sample}.forup
+    fix=${snv}/${sample}.fix
+    snp=${snv}/${sample}.snp
+    cfa=${cfa_dir}/${sample}.cfa
+    
+    # 执行 paired-end 处理
+    sickle pe -l 35 -f $fq1 -r $fq2 -t sanger -o $fq1_tr -p $fq2_tr -s $fq3_tr
+    bwa aln -R 1 -t 8 ./data/tb.ancestor.fasta $fq1_tr > $sai1
+    bwa aln -R 1 -t 8 ./data/tb.ancestor.fasta $fq2_tr > $sai2
+    bwa aln -R 1 ./data/tb.ancestor.fasta $fq3_tr > $sai3
+    bwa sampe -a 1000 -n 1 -N 1 ./data/tb.ancestor.fasta $sai1 $sai2 $fq1_tr $fq2_tr > $samp
+    bwa samse -n 1 ./data/tb.ancestor.fasta $sai3 $fq3_tr > $sams
+    samtools view -bhSt ./data/tb.ancestor.fasta.fai $samp -o $bamp
+    samtools view -bhSt ./data/tb.ancestor.fasta.fai $sams -o $bams
+    samtools merge $bamm $bamp $bams
+    samtools sort $bamm -o $sortbam
+    samtools index $sortbam
+    samtools mpileup -q 30 -Q 20 -ABOf ./data/tb.ancestor.fasta $sortbam > $pileup
+    java -jar ./src/VarScan.v2.3.9.jar mpileup2snp $pileup --min-coverage 3 --min-reads2 2 --min-avg-qual 20 --min-var-freq 0.01 --min-freq-for-hom 0.9 --p-value 99e-02 --strand-filter 0 > $var
+    java -jar ./src/VarScan.v2.3.9.jar mpileup2cns $pileup --min-coverage 3 --min-avg-qual 20 --min-var-freq 0.75 --min-reads2 2 --strand-filter 0 > $cns
+    python ./src/remove_low_ebr.py $var > $ppe
+    perl ./src/varscan_work_flow/1_format_trans.pl $ppe > $format
+    perl ./src/varscan_work_flow/2_fix_extract.pl $format > $fix
+    perl ./src/varscan_work_flow/3.1_mix_pileup_merge.pl $format $pileup > $forup
+    cut -f2-4 $fix > $snp
+    perl ./src/single_colony/1st_loci_recall_cns.pl ./src/single_colony/all_4411532_loc.txt ./src/single_colony/depth.txt $cns > $cfa
+    rm $fq1 $fq2 $sfq $fq1_tr $fq2_tr $fq3_tr $sai1 $sai2 $sai3 $samp $sams $bamp $bams $bamm $pileup $ppe $format $fix
+    rm ${snv}/${sample}.cns.gz 
+    gzip $cns
+
+    ###########call indel######################
+    sortbam=${bam_dir}/${sample}.sort.bam
+    fltbam=${bam_dir}/${sample}.flt.bam
+    rgbam=${bam_dir}/${sample}.rgb.bam
+    interval=${bam_dir}/${sample}.intervals
+    rlbam=${bam_dir}/${sample}.rl.bam
+    vcf=${indel_dir}/${sample}.INDEL.vcf
+    indel=${indel_dir}/${sample}.indel
+    ano=${indel_dir}/${sample}.indel.ann
+
+    if [ -f $sortbam ]; then
+      samtools view -bF 4 -q 1 $sortbam > $fltbam
+      samtools index $fltbam
+      java -jar /proj/qliulab/shared_software/picard.jar AddOrReplaceReadGroups I=$fltbam O=$rgbam RGID=4 RGLB=lib1 RGPL=illumina RGPU=unit1 RGSM=20
+      samtools index $rgbam
+      java -Xmx2g -jar /proj/qliulab/shared_software/GenomeAnalysisTK.jar -I $rgbam -R data/tb.ancestor.fasta -T RealignerTargetCreator -maxInterval 20000 -o $interval
+      java -Xmx4g -jar /proj/qliulab/shared_software/GenomeAnalysisTK.jar -T IndelRealigner -R data/tb.ancestor.fasta -I $rgbam -targetIntervals $interval -o $rlbam
+      samtools index $rlbam
+      java -Xmx4g -jar /proj/qliulab/shared_software/GenomeAnalysisTK.jar -T UnifiedGenotyper -nt 1 -R data/tb.ancestor.fasta -I $rlbam -o $vcf -glm INDEL
+      rm $rgbam $rgbam.bai $interval $rlbam $rlbam.bai $fltbam $fltbam.bai ${vcf}.idx
+      grep -v "^#" $vcf |awk '{print $2"\t"$4"\t"$5}' > $indel
+      perl src/2_GATK_Indel_Translate.pl $indel > $ano
+      rm $indel
+      echo "Indel Processing complete for ${sample}."
+    else
+      echo "BAM file not found for ${sample}. Skipping..."
+    fi
+
+    echo "Processing complete for ${sample}."
+  else
+    echo "Processing single-end reads for ${sample}..."
+    fq_tr=${fq_dir}/${sample}_tr.fq
+    sai=${fq_dir}/${sample}.sai
+    samf=${bam_dir}/${sample}.sam
+    bamf=${bam_dir}/${sample}.bam
+    sortbam=${bam_dir}/${sample}.sort.bam
+    pileup=${snv}/${sample}.pileup
+    var=${snv}/${sample}.varscan
+    cns=${snv}/${sample}.cns
+    ppe=${snv}/${sample}.ppe
+    format=${snv}/${sample}.for
+    fix=${snv}/${sample}.fix
+    snp=${snv}/${sample}.snp
+    forup=${forup_dir}/${sample}.forup
+    cfa=${cfa_dir}/${sample}.cfa
+    
+    # 执行 single-end 处理
+    sickle se -f $sfq -t sanger -o $fq_tr
+    bwa aln -t 8 -R 1 ./data/tb.ancestor.fasta $fq_tr > $sai
+    bwa samse ./data/tb.ancestor.fasta $sai $fq_tr > $samf
+    samtools view -bhSt ./data/tb.ancestor.fasta.fai $samf -o $bamf
+    samtools sort $bamf -o $sortbam
+    samtools index $sortbam
+    samtools mpileup -q 30 -Q 20 -ABOf ./data/tb.ancestor.fasta $sortbam > $pileup
+    java -jar ./src/VarScan.v2.3.9.jar mpileup2snp $pileup --min-coverage 3 --min-reads2 2 --min-avg-qual 20 --min-var-freq 0.01 --min-freq-for-hom 0.9 --p-value 99e-02 --strand-filter 0 > $var
+    java -jar ./src/VarScan.v2.3.9.jar mpileup2cns $pileup --min-coverage 3 --min-avg-qual 20 --min-var-freq 0.75 --min-reads2 2 --strand-filter 0 > $cns
+    python ./src/remove_low_ebr.py $var > $ppe
+    perl ./src/varscan_work_flow/1_format_trans.pl $ppe > $format
+    perl ./src/varscan_work_flow/2_fix_extract.pl $format > $fix
+    perl ./src/varscan_work_flow/3.1_mix_pileup_merge.pl $format $pileup > $forup
+    cut -f2-4 $fix > $snp
+    perl ./src/single_colony/1st_loci_recall_cns.pl $cns > $cfa
+    rm $sfq $fq_tr $sai $samf $bamf $pileup $ppe $format $fix
+    rm ${snv}/${sample}.cns.gz 
+    gzip $cns
+    
+    ###########call indel######################
+    sortbam=${bam_dir}/${sample}.sort.bam
+    fltbam=${bam_dir}/${sample}.flt.bam
+    rgbam=${bam_dir}/${sample}.rgb.bam
+    interval=${bam_dir}/${sample}.intervals
+    rlbam=${bam_dir}/${sample}.rl.bam
+    vcf=${indel_dir}/${sample}.INDEL.vcf
+    indel=${indel_dir}/${sample}.indel
+    ano=${indel_dir}/${sample}.indel.ann
+
+    if [ -f $sortbam ]; then
+      samtools view -bF 4 -q 1 $sortbam > $fltbam
+      samtools index $fltbam
+      java -jar /proj/qliulab/shared_software/picard.jar AddOrReplaceReadGroups I=$fltbam O=$rgbam RGID=4 RGLB=lib1 RGPL=illumina RGPU=unit1 RGSM=20
+      samtools index $rgbam
+      java -Xmx2g -jar /proj/qliulab/shared_software/GenomeAnalysisTK.jar -I $rgbam -R data/tb.ancestor.fasta -T RealignerTargetCreator -maxInterval 20000 -o $interval
+      java -Xmx4g -jar /proj/qliulab/shared_software/GenomeAnalysisTK.jar -T IndelRealigner -R data/tb.ancestor.fasta -I $rgbam -targetIntervals $interval -o $rlbam
+      samtools index $rlbam
+      java -Xmx4g -jar /proj/qliulab/shared_software/GenomeAnalysisTK.jar -T UnifiedGenotyper -nt 1 -R data/tb.ancestor.fasta -I $rlbam -o $vcf -glm INDEL
+      rm $rgbam $rgbam.bai $interval $rlbam $rlbam.bai $fltbam $fltbam.bai ${vcf}.idx
+      grep -v "^#" $vcf |awk '{print $2"\t"$4"\t"$5}' > $indel
+      perl src/2_GATK_Indel_Translate.pl $indel > $ano
+      rm $indel
+      echo "Indel Processing complete for ${sample}."
+    else
+      echo "BAM file not found for ${sample}. Skipping..."
+    fi
+
+    echo "Processing complete for ${sample}."
+  fi
+
+  # 标记样本为已完成
+  touch "${fq_dir}/${sample}_done"
+done
+
+echo "All samples processed."
+
