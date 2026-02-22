@@ -23,6 +23,7 @@ tree_dir="${output_dir}/lineage_tree"
 cfa_dir="${output_dir}/lineage_cfa"
 mkdir -p "$tree_dir" "$cfa_dir"   # mkdir -p 不需要先判断
 
+#working dir output/lineage_tree
 # ── 临时文件初始化（防止追加污染）─────────────────────────────
 pos_file="${lname}.pos"
 snp_strain_file="${lname}_snp_strain.txt"
