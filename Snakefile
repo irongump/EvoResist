@@ -314,6 +314,7 @@ rule branch_mutations:
         tree="output/lineage_tree/{lineage}_btp.treefile",
         state="output/lineage_tree/{lineage}_btp.state",
         low_ebr=config["low_ebr_file"],
+        ref=config["reference"],
     output:
         ann="output/lineage_ann/{lineage}.ann",
     params:
@@ -363,7 +364,8 @@ rule branch_mutations:
 
         # Generate per-node SNP files
         python ../../scripts/getrefbase_per_node.py \
-            ${{lineage}}_db_mutation2_rmanc.txt ${{lineage}}
+            ${{lineage}}_db_mutation2_rmanc.txt ${{lineage}} \
+            ../../{input.ref}
 
         # Annotate each node's mutations in parallel
         find "${{lineage}}" -maxdepth 1 -name "*snp" -print0 | \
@@ -396,6 +398,7 @@ rule ancestor_mutations:
     input:
         mutation_file=config["ancestor_mutation_file"],
         low_ebr=config["low_ebr_file"],
+        ref=config["reference"],
     output:
         ann="output/lineage_ann/ancestor.ann",
     params:
@@ -412,7 +415,7 @@ rule ancestor_mutations:
 
         # Generate per-node SNP files for ancestor nodes
         python scripts/getrefbase_per_node.py \
-            {input.mutation_file} output/ancestor_tmp
+            {input.mutation_file} output/ancestor_tmp {input.ref}
 
         # Annotate each node's mutations in parallel
         find "output/ancestor_tmp" -maxdepth 1 -name "*snp" -print0 | \

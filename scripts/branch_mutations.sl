@@ -23,7 +23,7 @@ python ../scripts/node_leafs.py ${name}.treefile ${name}_db_mutation.txt > ${nam
 #remove ancestral mutations and get lineage specific mutations
 python ../scripts/filter_lineage_defining.py ${name}_db_mutation2.txt ${name} > ${name}_db_mutation2_rmanc.txt
 
-python ../scripts/getrefbase_per_node.py ${name}_db_mutation2_rmanc.txt ${name} #this script will mkdir ${name} and output ${name}/perNode.snp
+python ../scripts/getrefbase_per_node.py ${name}_db_mutation2_rmanc.txt ${name} ../../data/tb.ancestor.fasta #this script will mkdir ${name} and output ${name}/perNode.snp
 find "${name}" -maxdepth 1 -name "*snp" -print0 | parallel -0 -j 24 '
     python ../scripts/remove_low_ebr.py "../../data/RLC_lowmapK50E4_H37Rv_pos.txt" "{}" > "{= s/\.snp$// =}_rle.snp" && 
     perl ../scripts/mtbc_translate/0_MTBC_Annotation_mtbc_4411532_corrected.pl "{= s/\.snp$// =}_rle.snp" > "{= s/\.snp$// =}.ann" &&
