@@ -1,9 +1,12 @@
 #!usr/bin/perl
 use warnings;
+use File::Basename;
+use Cwd 'abs_path';
 
 # Written by Qingyun Liu
 # Usage: perl $.pl $.snp
 
+my $script_dir = dirname(abs_path($0));
 my %name;
 my %des;
 my %cat;
@@ -23,7 +26,7 @@ $comp{"T"}="A";
 $comp{"G"}="C";
 $comp{"C"}="G";
 
-open F1, "/proj/qliulab/MTB_phy_db/src/mtbc_translate/2_Tuberculist_new_20150307" or die $!; #open Tuberculist_new_20150307
+open F1, "$script_dir/2_Tuberculist_new_20150307" or die $!; #open Tuberculist_new_20150307
 while(<F1>){
 	chomp;
 	@a=split "\t",$_;
@@ -35,7 +38,7 @@ while(<F1>){
 	$cat{$a[0]}=$a[6];
 	push(@gene, $a[0]);
 	$geneha{$a[0]}=1;
-	if($i>0){								#数基因间区域
+	if($i>0){								#count intergenic regions
 		if($a[3]>$end{$gene[$i-1]}){
 			$j="$gene[$i-1]-$gene[$i]";
 			$igrha{$j}=1;
@@ -55,7 +58,7 @@ $end{$last_igr}=4411532;
 
 @all=(@gene,@igr);
 
-open F2, "</proj/qliulab/MTB_phy_db/src/mtbc_translate/3_genetic_codes" or die $!; #open genetic_code
+open F2, "<$script_dir/3_genetic_codes" or die $!; #open genetic_code
 while(<F2>){
 	chomp;
 	@a=split "\t",$_;
@@ -63,7 +66,7 @@ while(<F2>){
 	}
 close F2;
 
-open F3, "</proj/qliulab/MTB_phy_db/src/mtbc_translate/4_mtbc_sequence.fasta" or die $!; #open genome.fasta
+open F3, "<$script_dir/4_mtbc_sequence.fasta" or die $!; #open genome.fasta
 while(<F3>){
 	chomp;
 	if($_=~m/>/){
@@ -74,7 +77,7 @@ while(<F3>){
 	}
 close F3;
 
-my $k=0; #用来判定对该位点是否存在两个基因的重叠区域。k=0时是第一次注释，k=1是是第二次注释。
+my $k=0; #used to determine if overlapping regions of two genes exist at this locus. k=0 is first annotation, k=1 is second annotation.
 
 open F4, $ARGV[0] or die $!; # open mutation_list
 while(<F4>){
