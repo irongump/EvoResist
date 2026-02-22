@@ -6,7 +6,7 @@
 #SBATCH -t 10-00:00:00
 #SBATCH --mem=12G
 
-# 检查是否提供了 SRA 文件列表
+# Check if a SRA file list is provided
 if [ "$#" -ne 1 ]; then
   echo "Usage: $0 <sra_list_file>"
   exit 1
@@ -14,16 +14,15 @@ fi
 
 filelist=$1
 
-# 定义工作目录
+# Define working directories
 output_dir="output" #default output dir name
 fq_dir="output/fastq"
 SRA="./data/sra"
 bam_dir='output/bam'
 snv='output/snv'
-cfa='output/cfa'
+cfa_dir='output/cfa'
 forup_dir='output/forup'
 ano_dir='output/ano'
-#snippy_snv='snippy_snv'
 
 DIRS=("output/fastq" "output/bam" "output/cfa" "output/snv" "output/forup")
 for dir in "${DIRS[@]}"; do
@@ -32,7 +31,7 @@ for dir in "${DIRS[@]}"; do
     fi
 done
 
-# 检查样本是否已成功完成的函数
+# Function to check if a sample has already been processed
 is_sample_done() {
   local sample=$1
   if [ -s "${snv}/${sample}.snp" ]; then
@@ -42,20 +41,20 @@ is_sample_done() {
   fi
 }
 
-# 处理每个 SRA 样本
+# Process each SRA sample
 cat $filelist |while read sample; do 
-  # 检查样本是否已完成
+  # Check if sample is already completed
   if is_sample_done "$sample"; then
     echo "Sample ${sample} is already completed. Skipping..."
     continue
   fi
 
   module add sratoolkit/3.0.7
-  # 检查是否存在 fastq 文件
+  # Check if FASTQ files already exist
   if [ -f ${fq_dir}/${sample}_1.fastq.gz ] || [ -f ${fq_dir}/${sample}.fastq.gz ]; then
     echo "Fastq files for ${sample} exist. Skipping SRA extraction..."
   else
-    # 从 SRA 文件解压 fastq
+    # Extract FASTQ from SRA files
     echo "Extracting fastq files for ${sample} from SRA..."
     if [ -f "${SRA}/${sample}/${sample}.sra" ]; then
       fastq-dump -split-3 --gzip -O ${fq_dir} ${SRA}/${sample}/${sample}.sra
@@ -67,7 +66,7 @@ cat $filelist |while read sample; do
     fi
   fi
   module purge
-  # 进行后续处理
+  # Proceed with downstream processing
   fq1=${fq_dir}/${sample}_1.fastq.gz
   fq2=${fq_dir}/${sample}_2.fastq.gz
   sfq=${fq_dir}/${sample}.fastq.gz
@@ -94,9 +93,9 @@ cat $filelist |while read sample; do
     forup=${forup_dir}/${sample}.forup
     fix=${snv}/${sample}.fix
     snp=${snv}/${sample}.snp
-    cfa=${cfa}/${sample}.cfa
+    sample_cfa=${cfa_dir}/${sample}.cfa
     
-    # 执行 paired-end 处理
+    # Paired-end processing pipeline
     sickle pe -l 35 -f $fq1 -r $fq2 -t sanger -o $fq1_tr -p $fq2_tr -s $fq3_tr
     bwa aln -R 1 -t 2 ./data/tb.ancestor.fasta $fq1_tr > $sai1
     bwa aln -R 1 -t 2 ./data/tb.ancestor.fasta $fq2_tr > $sai2
@@ -111,12 +110,12 @@ cat $filelist |while read sample; do
     samtools mpileup -q 30 -Q 20 -ABOf ./data/tb.ancestor.fasta $sortbam > $pileup
     java -jar ./src/VarScan.v2.3.9.jar mpileup2snp $pileup --min-coverage 3 --min-reads2 2 --min-avg-qual 20 --min-var-freq 0.01 --min-freq-for-hom 0.9 --p-value 99e-02 --strand-filter 0 > $var
     java -jar ./src/VarScan.v2.3.9.jar mpileup2cns $pileup --min-coverage 3 --min-avg-qual 20 --min-var-freq 0.75 --min-reads2 2 --strand-filter 0 > $cns
-    python ./src/remove_low_ebr.py $var > $ppe
-    perl ./src/varscan_work_flow/1_format_trans.pl $ppe > $format
-    perl ./src/varscan_work_flow/2_fix_extract.pl $format > $fix
-    perl ./src/varscan_work_flow/3.1_mix_pileup_merge.pl $format $pileup > $forup
+    python scripts/remove_low_ebr.py ./data/RLC_lowmapK50E4_H37Rv_pos.txt $var > $ppe
+    perl scripts/varscan_work_flow/1_format_trans.pl $ppe > $format
+    perl scripts/varscan_work_flow/2_fix_extract.pl $format > $fix
+    perl scripts/varscan_work_flow/3.1_mix_pileup_merge.pl $format $pileup > $forup
     cut -f2-4 $fix > $snp
-    perl ./src/single_colony/1st_loci_recall_cns.pl $cns > $cfa
+    perl scripts/single_colony/1st_loci_recall_cns.pl $cns > $sample_cfa
     rm $fq1 $fq2 $sfq $fq1_tr $fq2_tr $fq3_tr $sai1 $sai2 $sai3 $samp $sams $bamp $bams $bamm $pileup $ppe $format $fix
     rm ${snv}/${sample}.cns.gz 
     gzip $cns
@@ -136,9 +135,9 @@ cat $filelist |while read sample; do
     fix=${snv}/${sample}.fix
     snp=${snv}/${sample}.snp
     forup=${forup_dir}/${sample}.forup
-    cfa=${cfa}/${sample}.cfa
+    sample_cfa=${cfa_dir}/${sample}.cfa
     
-    # 执行 single-end 处理
+    # Single-end processing pipeline
     sickle se -f $sfq -t sanger -o $fq_tr
     bwa aln -t 2 -R 1 ./data/tb.ancestor.fasta $fq_tr > $sai
     bwa samse ./data/tb.ancestor.fasta $sai $fq_tr > $samf
@@ -148,21 +147,20 @@ cat $filelist |while read sample; do
     samtools mpileup -q 30 -Q 20 -ABOf ./data/tb.ancestor.fasta $sortbam > $pileup
     java -jar ./src/VarScan.v2.3.9.jar mpileup2snp $pileup --min-coverage 3 --min-reads2 2 --min-avg-qual 20 --min-var-freq 0.01 --min-freq-for-hom 0.9 --p-value 99e-02 --strand-filter 0 > $var
     java -jar ./src/VarScan.v2.3.9.jar mpileup2cns $pileup --min-coverage 3 --min-avg-qual 20 --min-var-freq 0.75 --min-reads2 2 --strand-filter 0 > $cns
-    python ./src/remove_low_ebr.py $var > $ppe
-    perl ./src/varscan_work_flow/1_format_trans.pl $ppe > $format
-    perl ./src/varscan_work_flow/2_fix_extract.pl $format > $fix
-    perl ./src/varscan_work_flow/3.1_mix_pileup_merge.pl $format $pileup > $forup
+    python scripts/remove_low_ebr.py ./data/RLC_lowmapK50E4_H37Rv_pos.txt $var > $ppe
+    perl scripts/varscan_work_flow/1_format_trans.pl $ppe > $format
+    perl scripts/varscan_work_flow/2_fix_extract.pl $format > $fix
+    perl scripts/varscan_work_flow/3.1_mix_pileup_merge.pl $format $pileup > $forup
     cut -f2-4 $fix > $snp
-    perl ./src/single_colony/1st_loci_recall_cns.pl $cns > $cfa
+    perl scripts/single_colony/1st_loci_recall_cns.pl $cns > $sample_cfa
     rm $sfq $fq_tr $sai $samf $bamf $pileup $ppe $format $fix
     rm ${snv}/${sample}.cns.gz 
     gzip $cns
     echo "Processing complete for ${sample}."
   fi
 
-  # 标记样本为已完成
+  # Mark sample as completed
   touch "${fq_dir}/${sample}_done"
 done
 
 echo "All samples processed."
-

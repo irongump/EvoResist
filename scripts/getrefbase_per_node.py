@@ -2,10 +2,11 @@
 import sys
 import os
 
-if len(sys.argv) != 3:
-    sys.exit(f"usage: {sys.argv[0]} <db_mutation> <snp_dir>")
+if len(sys.argv) < 3:
+    sys.exit(f"usage: {sys.argv[0]} <db_mutation> <snp_dir> [fasta_file]")
 
-fasta_file = "../data/tb.ancestor.fasta"
+# Use the optional third argument for fasta, or default to data/tb.ancestor.fasta
+fasta_file = sys.argv[3] if len(sys.argv) > 3 else "data/tb.ancestor.fasta"
 with open(fasta_file, "r") as fa:
     genome = "".join(line.strip() for line in fa if not line.startswith(">"))
 

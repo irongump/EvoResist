@@ -1,15 +1,19 @@
 #!usr/bin/perl
 use warnings;
+use File::Basename;
+use Cwd 'abs_path';
 
 # this script is writted to corrected those false annotation for those linked mutations;
+
+my $script_dir = dirname(abs_path($0));
 
 $name="$ARGV[0]";
 $name.=".temp";
 # create a temperory file $.temp (will be deleted in the end)
-`perl /proj/qliulab/MTB_phy_db/src/mtbc_translate/1_MTBC_Annotation_mtbc_4411532.pl $ARGV[0] > $name`;
+`perl $script_dir/1_MTBC_Annotation_mtbc_4411532.pl $ARGV[0] > $name`;
 # read in the coding system
 my %code;
-open F0, "/proj/qliulab/MTB_phy_db/src/mtbc_translate/3_genetic_codes" or die $!;
+open F0, "$script_dir/3_genetic_codes" or die $!;
 while(<F0>){
         chomp;
         @a=split "\t",$_;

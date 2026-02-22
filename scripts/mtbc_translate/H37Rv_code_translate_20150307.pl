@@ -32,7 +32,7 @@ while(<F1>){
 	$cat{$a[0]}=$a[6];
 	push(@gene, $a[0]);
 	$geneha{$a[0]}=1;
-	if($i>0){								#数基因间区域
+	if($i>0){								#count intergenic regions
 		if($a[3]>$end{$gene[$i-1]}){
 			$j="$gene[$i-1]-$gene[$i]";
 			$igrha{$j}=1;
@@ -66,7 +66,7 @@ while(<F3>){
 	}
 close F3;
 
-my $k=0; #用来判定对该位点是否存在两个基因的重叠区域。k=0时是第一次注释，k=1是是第二次注释。
+my $k=0; #used to determine if overlapping regions of two genes exist at this locus. k=0 is first annotation, k=1 is second annotation.
 
 open F4, $ARGV[3] or die $!; # open mutation_list
 while(<F4>){

@@ -13,7 +13,7 @@ name=$1 #lineage name
 module purge
 module load anaconda
 conda activate bioperl
-perl ../scripts/nodes_base_locus_iqtree.pl ${name}.treefile ../lineage_cfa/${name}_delete.pos ${name}.state $cfa ${name}.db ${name}_homoplasy.txt
+perl ../scripts/nodes_base_locus_iqtree.pl ${name}.treefile ../lineage_cfa/${name}_delete.pos ${name}.state ${name}.fa ${name}.db ${name}_homoplasy.txt
 
 #extract mutations in the db file
 perl ../scripts/db2mutation.pl ${name}.db > ${name}_db_mutation.txt
@@ -23,10 +23,10 @@ python ../scripts/node_leafs.py ${name}.treefile ${name}_db_mutation.txt > ${nam
 #remove ancestral mutations and get lineage specific mutations
 python ../scripts/filter_lineage_defining.py ${name}_db_mutation2.txt ${name} > ${name}_db_mutation2_rmanc.txt
 
-python ../../src/getrefbase_per_node.py ${name}_db_mutation2_rmanc.txt ${name} #this script will mkdir ${name} and output ${name}/perNode.snp
+python ../scripts/getrefbase_per_node.py ${name}_db_mutation2_rmanc.txt ${name} #this script will mkdir ${name} and output ${name}/perNode.snp
 find "${name}" -maxdepth 1 -name "*snp" -print0 | parallel -0 -j 24 '
-    python /proj/qliulab/MTB_phy_db/src/remove_low_ebr.py "{}" > "{= s/\.snp$// =}_rle.snp" && 
-    perl /proj/qliulab/MTB_phy_db/src/mtbc_translate/0_MTBC_Annotation_mtbc_4411532_corrected.pl "{= s/\.snp$// =}_rle.snp" > "{= s/\.snp$// =}.ann" &&
+    python ../scripts/remove_low_ebr.py "../../data/RLC_lowmapK50E4_H37Rv_pos.txt" "{}" > "{= s/\.snp$// =}_rle.snp" && 
+    perl ../scripts/mtbc_translate/0_MTBC_Annotation_mtbc_4411532_corrected.pl "{= s/\.snp$// =}_rle.snp" > "{= s/\.snp$// =}.ann" &&
     sed -i "/^$/d" "{= s/\.snp$// =}.ann"
 '
 cat "${name}"/*.ann > "${name}.ann"

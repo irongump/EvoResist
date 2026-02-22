@@ -1,15 +1,18 @@
 import sys
 import re
 
-lowebr = []
-with open('/users/g/m/gmin/mtb_ppe/data/RLC_lowmapK50E4_H37Rv_pos.txt') as f:
+# Usage: python remove_low_ebr.py <low_ebr_file> <snp_file>
+# Filter out variants in low-mappability regions.
+if len(sys.argv) < 3:
+    sys.exit(f"Usage: {sys.argv[0]} <low_ebr_file> <snp_file>")
+
+lowebr = set()
+with open(sys.argv[1]) as f:
     for line in f:
-        lowebr.append(line.strip())
+        lowebr.add(line.strip())
 
-lowebr = set(lowebr)
-
-with open(sys.argv[1]) as f: # snp file
+with open(sys.argv[2]) as f:
     for line in f:
         rows = line.strip().split('\t')
-        if (rows[0] not in lowebr):
+        if rows[0] not in lowebr:
             print(line.strip())
