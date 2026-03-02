@@ -150,15 +150,15 @@ rule snp_calling:
             samtools merge "$bamm" "$bamp" "$bams"
             samtools sort "$bamm" -o "$sortbam"
             samtools index "$sortbam"
-            samtools mpileup -q 30 -Q 20 -ABOf "$ref" "$sortbam" > "$pileup"
+            samtools mpileup -q 40 -Q 30 -ABOf "$ref" "$sortbam" > "$pileup"
 
             java -jar "$varscan" mpileup2snp "$pileup" \
-                --min-coverage 3 --min-reads2 2 --min-avg-qual 20 \
+                --min-coverage 10 --min-reads2 4 --min-avg-qual 30 \
                 --min-var-freq 0.01 --min-freq-for-hom 0.9 \
                 --p-value 99e-02 --strand-filter 0 > "$var"
             java -jar "$varscan" mpileup2cns "$pileup" \
-                --min-coverage 3 --min-avg-qual 20 --min-var-freq 0.75 \
-                --min-reads2 2 --strand-filter 0 > "$cns"
+                --min-coverage 10 --min-avg-qual 30 --min-var-freq 0.9 \
+                --min-reads2 4 --strand-filter 0 > "$cns"
 
             python scripts/remove_low_ebr.py "$low_ebr" "$var" > "$ppe"
             perl scripts/varscan_work_flow/1_format_trans.pl "$ppe" > "$format"
@@ -186,15 +186,15 @@ rule snp_calling:
             samtools view -bhSt "${{ref}}.fai" "$samf" -o "$bamf"
             samtools sort "$bamf" -o "$sortbam"
             samtools index "$sortbam"
-            samtools mpileup -q 30 -Q 20 -ABOf "$ref" "$sortbam" > "$pileup"
+            samtools mpileup -q 40 -Q 30 -ABOf "$ref" "$sortbam" > "$pileup"
 
             java -jar "$varscan" mpileup2snp "$pileup" \
-                --min-coverage 3 --min-reads2 2 --min-avg-qual 20 \
+                --min-coverage 10 --min-reads2 4 --min-avg-qual 30 \
                 --min-var-freq 0.01 --min-freq-for-hom 0.9 \
                 --p-value 99e-02 --strand-filter 0 > "$var"
             java -jar "$varscan" mpileup2cns "$pileup" \
-                --min-coverage 3 --min-avg-qual 20 --min-var-freq 0.75 \
-                --min-reads2 2 --strand-filter 0 > "$cns"
+                --min-coverage 10 --min-avg-qual 30 --min-var-freq 0.9 \
+                --min-reads2 4 --strand-filter 0 > "$cns"
 
             python scripts/remove_low_ebr.py "$low_ebr" "$var" > "$ppe"
             perl scripts/varscan_work_flow/1_format_trans.pl "$ppe" > "$format"
