@@ -22,6 +22,13 @@ import os
 
 configfile: "config/config.yaml"
 
+OUTPUT_DIR = config.get("output_dir", "output")
+if os.sep in OUTPUT_DIR or "/" in OUTPUT_DIR:
+    raise ValueError(
+        f"output_dir must be a single-level directory name (e.g. 'output'), "
+        f"got: '{OUTPUT_DIR}'"
+    )
+
 # =============================================================================
 # Discover lineages and samples from strain ID files
 # =============================================================================
@@ -44,8 +51,8 @@ ALL_SAMPLES = sorted(set(ALL_SAMPLES))
 # =============================================================================
 rule all:
     input:
-        "output/simulation/final_convergent_mutations_statistics.csv",
-        "output/simulation/Figure_Null_Distribution_Barplot.pdf",
+        f"{OUTPUT_DIR}/simulation/final_convergent_mutations_statistics.csv",
+        f"{OUTPUT_DIR}/simulation/Figure_Null_Distribution_Barplot.pdf",
 
 # =============================================================================
 # Step 1: Build Phylogenetic Tree (per lineage)
@@ -56,22 +63,23 @@ rule all:
 
 rule build_tree:
     input:
-        snps=lambda wc: expand("output/snv/{sample}.snp",
+        snps=lambda wc: expand(OUTPUT_DIR + "/snv/{sample}.snp",
                                sample=get_samples(wc.lineage)),
-        cfas=lambda wc: expand("output/cfa/{sample}.cfa",
+        cfas=lambda wc: expand(OUTPUT_DIR + "/cfa/{sample}.cfa",
                                sample=get_samples(wc.lineage)),
         strain_list=os.path.join(config["strain_ids_dir"], "{lineage}.txt"),
         anc_cfa=config["ancestor_concat_fasta"],
         ref=config["reference"],
-        depth=config["depth"], #new add
     output:
-        tree="output/lineage_tree/{lineage}_btp.treefile",
-        state="output/lineage_tree/{lineage}_btp.state",
+        tree=f"{OUTPUT_DIR}/lineage_tree/{{lineage}}_btp.treefile",
+        state=f"{OUTPUT_DIR}/lineage_tree/{{lineage}}_btp.state",
     params:
         lineage="{lineage}",
-        tree_dir="output/lineage_tree",
-        cfa_dir="output/cfa",
-        snv_dir="output/snv",
+        tree_dir=f"{OUTPUT_DIR}/lineage_tree",
+        cfa_dir=f"{OUTPUT_DIR}/cfa",
+        snv_dir=f"{OUTPUT_DIR}/snv",
+        depth_thres=config["depth_thres"],
+        depth_file=config.get("depth_file", ""),
     threads: config["threads_tree"]
     resources:
         mem_mb=200000,
@@ -92,9 +100,10 @@ rule build_tree:
         > "$snp_strain_file"
         > "$cfa_strain_file"
 
-        flt_strain_file="${{tree_dir}}/${{lineage}}_depth_${depth_thres}.txt" #new add
-        Rscript ../scripts/sample_flt.R {input.strain_list} depth $depth_thres #new add
-        
+        flt_strain_file="${{tree_dir}}/${{lineage}}_depth_{params.depth_thres}.txt"
+        Rscript scripts/sample_flt.R {input.strain_list} {params.depth_file} {params.depth_thres}
+        mv "$(basename {input.strain_list} .txt)_depth_{params.depth_thres}.txt" "$flt_strain_file"
+
         while IFS= read -r strain; do
             snp_file="${{snv_dir}}/${{strain}}.snp"
             if [ -f "$snp_file" ]; then
@@ -103,7 +112,7 @@ rule build_tree:
             else
                 echo "Warning: ${{strain}} snp file not found, skipping." >&2
             fi
-        done < flt_strain_file
+        done < "$flt_strain_file"
 
         sort -nu "$pos_file" -o "$pos_file"
 
@@ -150,17 +159,17 @@ rule build_tree:
 
 rule branch_mutations:
     input:
-        tree="output/lineage_tree/{lineage}_btp.treefile",
-        state="output/lineage_tree/{lineage}_btp.state",
+        tree=f"{OUTPUT_DIR}/lineage_tree/{{lineage}}_btp.treefile",
+        state=f"{OUTPUT_DIR}/lineage_tree/{{lineage}}_btp.state",
         low_ebr=config["low_ebr_file"],
         ref=config["reference"],
     output:
-        ann="output/lineage_ann/{lineage}.ann",
+        ann=f"{OUTPUT_DIR}/lineage_ann/{{lineage}}.ann",
     params:
         lineage="{lineage}",
-        tree_dir="output/lineage_tree",
-        ann_dir="output/lineage_ann",
-        cfa_dir="output/lineage_cfa",
+        tree_dir=f"{OUTPUT_DIR}/lineage_tree",
+        ann_dir=f"{OUTPUT_DIR}/lineage_ann",
+        cfa_dir=f"{OUTPUT_DIR}/lineage_cfa",
     threads: config["threads_annotation"]
     resources:
         mem_mb=20000,
@@ -239,9 +248,10 @@ rule ancestor_mutations:
         low_ebr=config["low_ebr_file"],
         ref=config["reference"],
     output:
-        ann="output/lineage_ann/ancestor.ann",
+        ann=f"{OUTPUT_DIR}/lineage_ann/ancestor.ann",
     params:
-        ann_dir="output/lineage_ann",
+        ann_dir=f"{OUTPUT_DIR}/lineage_ann",
+        anc_tmp=f"{OUTPUT_DIR}/ancestor_tmp",
     threads: config["threads_annotation"]
     resources:
         mem_mb=20000,
@@ -254,10 +264,10 @@ rule ancestor_mutations:
 
         # Generate per-node SNP files for ancestor nodes
         python scripts/getrefbase_per_node.py \
-            {input.mutation_file} output/ancestor_tmp {input.ref}
+            {input.mutation_file} {params.anc_tmp} {input.ref}
 
         # Annotate each node's mutations in parallel
-        find "output/ancestor_tmp" -maxdepth 1 -name "*snp" -print0 | \
+        find "{params.anc_tmp}" -maxdepth 1 -name "*snp" -print0 | \
             parallel -0 -j {threads} '
                 python scripts/remove_low_ebr.py "'"$low_ebr"'" "{{}}" \
                     > "{{= s/\.snp$// =}}_rle.snp" &&
@@ -267,10 +277,10 @@ rule ancestor_mutations:
                 sed -i "/^$/d" "{{= s/\.snp$// =}}.ann"
             '
 
-        cat output/ancestor_tmp/*.ann > "$ann_dir/ancestor.ann"
+        cat {params.anc_tmp}/*.ann > "$ann_dir/ancestor.ann"
 
         # Clean up
-        rm -rf output/ancestor_tmp
+        rm -rf {params.anc_tmp}
         """
 
 
@@ -281,11 +291,11 @@ rule ancestor_mutations:
 
 rule merge_annotations:
     input:
-        lineage_anns=expand("output/lineage_ann/{lineage}.ann",
+        lineage_anns=expand(f"{OUTPUT_DIR}/lineage_ann/{{lineage}}.ann",
                             lineage=LINEAGES),
-        ancestor_ann="output/lineage_ann/ancestor.ann",
+        ancestor_ann=f"{OUTPUT_DIR}/lineage_ann/ancestor.ann",
     output:
-        all_ann="output/lineage_ann/all_ann.txt",
+        all_ann=f"{OUTPUT_DIR}/lineage_ann/all_ann.txt",
     shell:
         r"""
         cat {input.lineage_anns} > {output.all_ann}
@@ -295,27 +305,31 @@ rule merge_annotations:
 
 rule stat_convergent:
     input:
-        all_ann="output/lineage_ann/all_ann.txt",
+        all_ann=f"{OUTPUT_DIR}/lineage_ann/all_ann.txt",
     output:
-        convergent="output/lineage_ann/all_ann_convergent.txt",
+        convergent=f"{OUTPUT_DIR}/lineage_ann/all_ann_convergent.txt",
+    params:
+        ann_dir=f"{OUTPUT_DIR}/lineage_ann",
     shell:
         r"""
-        cd output/lineage_ann
+        cd {params.ann_dir}
         Rscript ../../scripts/stat_convergent.R
         """
 
 
 rule filter_convergent:
     input:
-        convergent="output/lineage_ann/all_ann_convergent.txt",
+        convergent=f"{OUTPUT_DIR}/lineage_ann/all_ann_convergent.txt",
         snp_freq=config["snp_freq_file"],
         repeat_region=config["repeat_region_file"],
         mobile_element=config["mobile_element_file"],
     output:
-        filtered="output/lineage_ann/all_ann_convergent_flt.txt",
+        filtered=f"{OUTPUT_DIR}/lineage_ann/all_ann_convergent_flt.txt",
+    params:
+        ann_dir=f"{OUTPUT_DIR}/lineage_ann",
     shell:
         r"""
-        cd output/lineage_ann
+        cd {params.ann_dir}
         Rscript ../../scripts/filter_low_freq_pos.R \
             all_ann_convergent.txt all_ann_convergent_flt.txt
         """
@@ -329,14 +343,14 @@ rule filter_convergent:
 
 rule simulation:
     input:
-        filtered="output/lineage_ann/all_ann_convergent_flt.txt",
+        filtered=f"{OUTPUT_DIR}/lineage_ann/all_ann_convergent_flt.txt",
         ref=config["reference"],
     output:
-        raw_sim="output/simulation/simulated_mutations_raw_GTR_Gamma.csv",
-        null_dist="output/simulation/null_mutation_df_GTR.csv",
-        expected="output/simulation/expected_null_distribution_GTR_Gamma.csv",
+        raw_sim=f"{OUTPUT_DIR}/simulation/simulated_mutations_raw_GTR_Gamma.csv",
+        null_dist=f"{OUTPUT_DIR}/simulation/null_mutation_df_GTR.csv",
+        expected=f"{OUTPUT_DIR}/simulation/expected_null_distribution_GTR_Gamma.csv",
     params:
-        sim_dir="output/simulation",
+        sim_dir=f"{OUTPUT_DIR}/simulation",
     shell:
         r"""
         mkdir -p {params.sim_dir}
@@ -353,12 +367,12 @@ rule simulation:
 
 rule fdr_analysis:
     input:
-        filtered="output/lineage_ann/all_ann_convergent_flt.txt",
-        raw_sim="output/simulation/simulated_mutations_raw_GTR_Gamma.csv",
+        filtered=f"{OUTPUT_DIR}/lineage_ann/all_ann_convergent_flt.txt",
+        raw_sim=f"{OUTPUT_DIR}/simulation/simulated_mutations_raw_GTR_Gamma.csv",
     output:
-        stats="output/simulation/final_convergent_mutations_statistics.csv",
+        stats=f"{OUTPUT_DIR}/simulation/final_convergent_mutations_statistics.csv",
     params:
-        sim_dir="output/simulation",
+        sim_dir=f"{OUTPUT_DIR}/simulation",
     shell:
         r"""
         cd {params.sim_dir}
@@ -368,12 +382,12 @@ rule fdr_analysis:
 
 rule plot_results:
     input:
-        expected="output/simulation/expected_null_distribution_GTR_Gamma.csv",
+        expected=f"{OUTPUT_DIR}/simulation/expected_null_distribution_GTR_Gamma.csv",
     output:
-        pdf="output/simulation/Figure_Null_Distribution_Barplot.pdf",
-        png="output/simulation/Figure_Null_Distribution_Barplot.png",
+        pdf=f"{OUTPUT_DIR}/simulation/Figure_Null_Distribution_Barplot.pdf",
+        png=f"{OUTPUT_DIR}/simulation/Figure_Null_Distribution_Barplot.png",
     params:
-        sim_dir="output/simulation",
+        sim_dir=f"{OUTPUT_DIR}/simulation",
     shell:
         r"""
         cd {params.sim_dir}

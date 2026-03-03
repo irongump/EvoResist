@@ -1,0 +1,280 @@
+"""
+EvoResist Single-Lineage Pipeline
+===================================
+Run tree building and branch mutation analysis for a single lineage.
+
+Given a lineage name the pipeline will:
+  1. Auto-locate the corresponding strain list in strain_ids_dir
+  2. Filter samples by depth (sample_flt.R)
+  3. Generate concatenated FASTA alignment (snp2cfa.py)
+  4. Build phylogenetic tree with IQ-TREE
+  5. Extract per-branch mutations and annotate them
+
+Usage:
+  snakemake -s Snakefile_single_lineage --cores <N> \\
+      --configfile config/config.yaml \\
+      --config lineage=<lineage_name>
+
+Example:
+  snakemake -s Snakefile_single_lineage --cores 4 \\
+      --configfile config/config.yaml \\
+      --config lineage=Lineage1.1_strain
+
+Notes:
+  - Per-sample .snp and .cfa files must already exist under
+    {output_dir}/snv/ and {output_dir}/cfa/ respectively.
+  - output_dir must be a single-level directory name relative to the
+    project root (e.g. "output", not "my/custom/output"); this is
+    enforced at pipeline start.
+"""
+
+import os
+
+configfile: "config/config.yaml"
+
+LINEAGE    = config["lineage"]
+OUTPUT_DIR = config.get("output_dir", "output")
+if os.sep in OUTPUT_DIR or "/" in OUTPUT_DIR:
+    raise ValueError(
+        f"output_dir must be a single-level directory name (e.g. 'output'), "
+        f"got: '{OUTPUT_DIR}'"
+    )
+DEPTH_THRES = config.get("depth_thres", 30)
+
+# ---------------------------------------------------------------------------
+# Auto-locate the strain list file for the requested lineage
+# ---------------------------------------------------------------------------
+STRAIN_FILE = os.path.join(config["strain_ids_dir"], f"{LINEAGE}.txt")
+if not os.path.exists(STRAIN_FILE):
+    raise ValueError(
+        f"Strain file not found for lineage '{LINEAGE}': {STRAIN_FILE}"
+    )
+
+# Path where the depth-filtered strain list will be written
+FLT_STRAIN_FILE = os.path.join(
+    OUTPUT_DIR, "lineage_tree", f"{LINEAGE}_depth_{DEPTH_THRES}.txt"
+)
+
+# ---------------------------------------------------------------------------
+# Helper: read sample IDs from the filtered strain file (post-checkpoint)
+# ---------------------------------------------------------------------------
+def get_filtered_samples(wildcards):
+    """Return sample list from the filtered strain file produced by the
+    filter_samples checkpoint."""
+    flt_file = checkpoints.filter_samples.get().output.flt_strain
+    with open(flt_file) as fh:
+        return [line.strip() for line in fh if line.strip()]
+
+
+# =============================================================================
+# Final target
+# =============================================================================
+rule all:
+    input:
+        f"{OUTPUT_DIR}/lineage_ann/{LINEAGE}.ann",
+
+
+# =============================================================================
+# Step 1: Filter samples by depth
+# =============================================================================
+# Runs sample_flt.R, which writes the filtered strain list to the current
+# working directory; the result is then moved to OUTPUT_DIR/lineage_tree/.
+
+checkpoint filter_samples:
+    input:
+        strain_list=STRAIN_FILE,
+    output:
+        flt_strain=FLT_STRAIN_FILE,
+    params:
+        depth_file=config.get("depth_file", ""),
+        depth_thres=DEPTH_THRES,
+        out_dir=os.path.join(OUTPUT_DIR, "lineage_tree"),
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p {params.out_dir}
+        Rscript scripts/sample_flt.R \
+            {input.strain_list} \
+            {params.depth_file} \
+            {params.depth_thres}
+        flt_base="$(basename {input.strain_list} .txt)_depth_{params.depth_thres}.txt"
+        mv "$flt_base" {output.flt_strain}
+        """
+
+
+# =============================================================================
+# Step 2: Build Phylogenetic Tree
+# =============================================================================
+# Uses the filtered sample list to collect SNP positions, generate the
+# concatenated FASTA alignment (snp2cfa.py), and build the tree with IQ-TREE.
+
+rule build_tree:
+    input:
+        flt_strain=FLT_STRAIN_FILE,
+        snps=lambda wc: expand(
+            OUTPUT_DIR + "/snv/{sample}.snp",
+            sample=get_filtered_samples(wc),
+        ),
+        cfas=lambda wc: expand(
+            OUTPUT_DIR + "/cfa/{sample}.cfa",
+            sample=get_filtered_samples(wc),
+        ),
+        anc_cfa=config["ancestor_concat_fasta"],
+        ref=config["reference"],
+    output:
+        tree=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_btp.treefile",
+        state=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_btp.state",
+    params:
+        lineage=LINEAGE,
+        tree_dir=f"{OUTPUT_DIR}/lineage_tree",
+        cfa_dir=f"{OUTPUT_DIR}/cfa",
+        snv_dir=f"{OUTPUT_DIR}/snv",
+    threads: config["threads_tree"]
+    resources:
+        mem_mb=200000,
+    shell:
+        r"""
+        set -euo pipefail
+        lineage={params.lineage}
+        tree_dir={params.tree_dir}
+        cfa_dir={params.cfa_dir}
+        snv_dir={params.snv_dir}
+
+        pos_file="${{tree_dir}}/${{lineage}}.pos"
+        snp_strain_file="${{tree_dir}}/${{lineage}}_snp_strain.txt"
+        cfa_strain_file="${{tree_dir}}/${{lineage}}_cfa_strain.txt"
+        > "$pos_file"
+        > "$snp_strain_file"
+        > "$cfa_strain_file"
+
+        # Collect SNP positions from filtered samples
+        while IFS= read -r strain; do
+            snp_file="${{snv_dir}}/${{strain}}.snp"
+            if [ -f "$snp_file" ]; then
+                awk '{{print $1}}' "$snp_file" >> "$pos_file"
+                echo "$strain" >> "$snp_strain_file"
+            else
+                echo "Warning: ${{strain}} snp file not found, skipping." >&2
+            fi
+        done < "{input.flt_strain}"
+
+        sort -nu "$pos_file" -o "$pos_file"
+
+        # Build CFA file list
+        while IFS= read -r strain; do
+            cfa_file="${{cfa_dir}}/${{strain}}.cfa"
+            if [ -f "$cfa_file" ]; then
+                echo "$cfa_file" >> "$cfa_strain_file"
+            else
+                echo "Warning: ${{strain}} cfa file not found, skipping." >&2
+            fi
+        done < "$snp_strain_file"
+        echo "{input.anc_cfa}" >> "$cfa_strain_file"
+
+        # Generate concatenated FASTA alignment
+        python scripts/snp2cfa.py "$pos_file" "$cfa_strain_file"
+
+        # Verify alignment was created
+        cfa="${{tree_dir}}/${{lineage}}.fa"
+        if [ ! -f "$cfa" ]; then
+            echo "Error: Expected CFA file $cfa not found!" >&2
+            exit 1
+        fi
+
+        # Build tree with IQ-TREE
+        iqtree2 -s "$cfa" \
+            -m GTR+F+R4 \
+            --seqtype DNA \
+            --prefix "${{tree_dir}}/${{lineage}}_btp" \
+            --mem {resources.mem_mb}M \
+            -T {threads} \
+            --ancestral \
+            -o tb \
+            -af fasta \
+            -bb 1000 \
+            -alrt 1000
+        """
+
+
+# =============================================================================
+# Step 3: Branch Mutation Extraction
+# =============================================================================
+
+rule branch_mutations:
+    input:
+        tree=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_btp.treefile",
+        state=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_btp.state",
+        low_ebr=config["low_ebr_file"],
+        ref=config["reference"],
+    output:
+        ann=f"{OUTPUT_DIR}/lineage_ann/{LINEAGE}.ann",
+    params:
+        lineage=LINEAGE,
+        tree_dir=f"{OUTPUT_DIR}/lineage_tree",
+        ann_dir=f"{OUTPUT_DIR}/lineage_ann",
+        cfa_dir=f"{OUTPUT_DIR}/lineage_cfa",
+    threads: config["threads_annotation"]
+    resources:
+        mem_mb=20000,
+    shell:
+        r"""
+        set -euo pipefail
+        lineage={params.lineage}
+        tree_dir={params.tree_dir}
+        ann_dir={params.ann_dir}
+        cfa_dir={params.cfa_dir}
+        low_ebr={input.low_ebr}
+        mkdir -p "$ann_dir"
+
+        cd "$tree_dir"
+
+        # Extract ancestral sequences for each node
+        perl ../../scripts/nodes_base_locus_iqtree.pl \
+            ${{lineage}}_btp.treefile \
+            ../../${{cfa_dir}}/${{lineage}}_delete.pos \
+            ${{lineage}}_btp.state \
+            ${{lineage}}.fa \
+            ${{lineage}}.db \
+            ${{lineage}}_homoplasy.txt
+
+        # Extract mutations from the database file
+        perl ../../scripts/db2mutation.pl ${{lineage}}.db \
+            > ${{lineage}}_db_mutation.txt
+
+        # Annotate with leaf counts per node
+        python ../../scripts/node_leafs.py \
+            ${{lineage}}_btp.treefile \
+            ${{lineage}}_db_mutation.txt \
+            > ${{lineage}}_db_mutation2.txt
+
+        # Remove ancestral (lineage-defining) mutations
+        python ../../scripts/filter_lineage_defining.py \
+            ${{lineage}}_db_mutation2.txt \
+            ${{lineage}} \
+            > ${{lineage}}_db_mutation2_rmanc.txt
+
+        # Generate per-node SNP files
+        python ../../scripts/getrefbase_per_node.py \
+            ${{lineage}}_db_mutation2_rmanc.txt ${{lineage}} \
+            ../../{input.ref}
+
+        # Annotate each node's mutations in parallel
+        find "${{lineage}}" -maxdepth 1 -name "*snp" -print0 | \
+            parallel -0 -j {threads} '
+                python ../../scripts/remove_low_ebr.py \
+                    "../../'"$low_ebr"'" "{{}}" \
+                    > "{{= s/\.snp$// =}}_rle.snp" &&
+                perl ../../scripts/mtbc_translate/0_MTBC_Annotation_mtbc_4411532_corrected.pl \
+                    "{{= s/\.snp$// =}}_rle.snp" \
+                    > "{{= s/\.snp$// =}}.ann" &&
+                sed -i "/^$/d" "{{= s/\.snp$// =}}.ann"
+            '
+
+        cat "${{lineage}}"/*.ann > "../../${{ann_dir}}/${{lineage}}.ann"
+
+        # Clean up temporary files
+        rm -f ${{lineage}}_db_mutation.txt ${{lineage}}_db_mutation2.txt
+        rm -rf "${{lineage}}"
+
+        cd ../..
+        """

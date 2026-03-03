@@ -9,7 +9,7 @@ depth_file <- args[2]
 depth_thres <- args[3]
 fname <- gsub('.txt','',fname)
 fname <- paste0(fname,'_depth_',depth_thres,'.txt')
-need_remove_sample <- read.delim('../data/need_remove_samples.txt',header=F)
+need_remove_sample <- read.delim('data/need_remove_samples.txt',header=F)
 
 sample <- read.delim(qfile,header=F)
 #depth_file <- 'Georgia_pop_depth.txt'

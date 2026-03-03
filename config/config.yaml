@@ -3,6 +3,10 @@
 # ==============================================================================
 # Adjust paths and parameters below to match your environment.
 
+# -- Output directory ---------------------------------------------------------
+# Name of the output directory (relative to the project root)
+output_dir: "output"
+
 # -- Reference data -----------------------------------------------------------
 # Path to the ancestral reference genome FASTA
 reference: "data/tb.ancestor.fasta"
@@ -42,3 +46,9 @@ num_mutations: 2345799
 threads_per_sample: 2
 threads_tree: 64
 threads_annotation: 24
+
+# -- Depth filtering ----------------------------------------------------------
+# Path to the per-sample depth statistics file (two columns: sample, mean_depth, coverage_10x)
+depth_file: "data/100k_depth.txt"
+# Minimum mean depth threshold for sample filtering
+depth_thres: 30
