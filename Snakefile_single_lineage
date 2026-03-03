@@ -115,10 +115,6 @@ rule build_tree:
             OUTPUT_DIR + "/snv/{sample}.snp",
             sample=get_filtered_samples(wc),
         ),
-        cfas=lambda wc: expand(
-            OUTPUT_DIR + "/cfa/{sample}.cfa",
-            sample=get_filtered_samples(wc),
-        ),
         anc_cfa=config["ancestor_concat_fasta"],
         ref=config["reference"],
     output:
@@ -160,13 +156,16 @@ rule build_tree:
 
         sort -nu "$pos_file" -o "$pos_file"
 
-        # Build CFA file list
+        # Build CFA/SNP file list: prefer .cfa if available, else use .snp
         while IFS= read -r strain; do
             cfa_file="${{cfa_dir}}/${{strain}}.cfa"
+            snp_file="${{snv_dir}}/${{strain}}.snp"
             if [ -f "$cfa_file" ]; then
                 echo "$cfa_file" >> "$cfa_strain_file"
+            elif [ -f "$snp_file" ]; then
+                echo "$snp_file" >> "$cfa_strain_file"
             else
-                echo "Warning: ${{strain}} cfa file not found, skipping." >&2
+                echo "Warning: ${{strain}} neither cfa nor snp file found, skipping." >&2
             fi
         done < "$snp_strain_file"
         echo "{input.anc_cfa}" >> "$cfa_strain_file"

@@ -1,0 +1,27 @@
+Config file config/config.yaml is extended by additional config specified via the command line.
+Assuming unrestricted shared filesystem usage.
+host: runnervmnay03
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 4
+Rules claiming more threads will be scaled down.
+Job stats:
+job               count
+--------------  -------
+filter_samples        1
+total                 1
+
+Select jobs to execute...
+Execute 1 jobs...
+[Tue Mar  3 03:25:13 2026]
+localcheckpoint filter_samples:
+    input: data/strain_ids/Lineage5_strain.txt
+    output: test/lineage_tree/Lineage5_strain_depth_30.txt
+    jobid: 0
+    reason: Missing output files: test/lineage_tree/Lineage5_strain_depth_30.txt
+    resources: tmpdir=/tmp
+DAG of jobs will be updated after completion.
+[Tue Mar  3 03:25:14 2026]
+Finished jobid: 0 (Rule: filter_samples)
+1 of 4 steps (25%) done
+Complete log(s): /home/runner/work/EvoResist/EvoResist/.snakemake/log/2026-03-03T032512.299060.snakemake.log
