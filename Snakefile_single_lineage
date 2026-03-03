@@ -13,12 +13,15 @@ Given a lineage name the pipeline will:
 Usage:
   snakemake -s Snakefile_single_lineage --cores <N> \\
       --configfile config/config.yaml \\
-      --config lineage=<lineage_name>
+      --config lineage=<lineage_name> [depth_thres=<N>]
+
+  depth_thres is optional; it defaults to the value in config.yaml (30).
+  Pass it on the command line to override without editing the config file.
 
 Example:
   snakemake -s Snakefile_single_lineage --cores 4 \\
       --configfile config/config.yaml \\
-      --config lineage=Lineage1.1_strain
+      --config lineage=Lineage1.1_strain depth_thres=50
 
 Notes:
   - Per-sample .snp files must already exist under the directory
