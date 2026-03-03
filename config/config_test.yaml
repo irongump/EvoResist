@@ -14,6 +14,10 @@ ancestor_concat_fasta: "data/tb.ancestor.concatenated.fasta"
 # -- Sample information -------------------------------------------------------
 strain_ids_dir: "data/strain_ids"
 
+# -- SNV input directory ------------------------------------------------------
+# Test SNV files live under test/snv/ rather than data/snv/
+snv_dir: "test/snv"
+
 # -- SRA data -----------------------------------------------------------------
 sra_dir: "data/sra"
 

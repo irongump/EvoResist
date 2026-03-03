@@ -17,6 +17,10 @@ ancestor_concat_fasta: "data/tb.ancestor.concatenated.fasta"
 # Directory containing per-lineage sample ID files (e.g., L1.txt, L2.txt, ...)
 strain_ids_dir: "data/strain_ids"
 
+# -- SNV input directory ------------------------------------------------------
+# Directory containing per-sample .snp files (fixed input, not output_dir-based)
+snv_dir: "data/snv"
+
 # -- SRA data (only needed when starting from SRA files) ----------------------
 sra_dir: "data/sra"
 

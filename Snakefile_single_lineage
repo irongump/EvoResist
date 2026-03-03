@@ -21,8 +21,9 @@ Example:
       --config lineage=Lineage1.1_strain
 
 Notes:
-  - Per-sample .snp and .cfa files must already exist under
-    {output_dir}/snv/ and {output_dir}/cfa/ respectively.
+  - Per-sample .snp files must already exist under the directory
+    specified by snv_dir in the config (default: data/snv/).
+  - Per-sample .cfa files, if present, must exist under {output_dir}/cfa/.
   - output_dir must be a single-level directory name relative to the
     project root (e.g. "output", not "my/custom/output"); this is
     enforced at pipeline start.
@@ -39,6 +40,7 @@ if os.sep in OUTPUT_DIR or "/" in OUTPUT_DIR:
         f"output_dir must be a single-level directory name (e.g. 'output'), "
         f"got: '{OUTPUT_DIR}'"
     )
+SNV_DIR    = config.get("snv_dir", "data/snv")
 DEPTH_THRES = config.get("depth_thres", 30)
 
 # ---------------------------------------------------------------------------
@@ -112,7 +114,7 @@ rule build_tree:
     input:
         flt_strain=FLT_STRAIN_FILE,
         snps=lambda wc: expand(
-            OUTPUT_DIR + "/snv/{sample}.snp",
+            SNV_DIR + "/{sample}.snp",
             sample=get_filtered_samples(wc),
         ),
         anc_cfa=config["ancestor_concat_fasta"],
@@ -124,7 +126,7 @@ rule build_tree:
         lineage=LINEAGE,
         tree_dir=f"{OUTPUT_DIR}/lineage_tree",
         cfa_dir=f"{OUTPUT_DIR}/cfa",
-        snv_dir=f"{OUTPUT_DIR}/snv",
+        snv_dir=SNV_DIR,
     threads: config["threads_tree"]
     resources:
         mem_mb=200000,
