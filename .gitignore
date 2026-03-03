@@ -9,3 +9,4 @@ test/lineage_tree/*.log
 test/lineage_tree/*.db
 test/lineage_tree/*_homoplasy.txt
 test/lineage_tree/*.pos
+test/lineage_tree/*.treefile
