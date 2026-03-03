@@ -2,3 +2,296 @@ IQ-TREE multicore version 2.0.7 for Linux 64-bit built Apr  1 2024
 Developed by Bui Quang Minh, Nguyen Lam Tung, Olga Chernomor,
 Heiko Schmidt, Dominik Schrempf, Michael Woodhams.
 
+Host:    runnervmnay03 (AVX2, FMA3, 15 GB RAM)
+Command: iqtree2 -s test/lineage_tree/Lineage5_strain.fa -m GTR+F+R4 --seqtype DNA --prefix test/lineage_tree/Lineage5_strain_btp --mem 200000M -T 4 --ancestral -o tb.ancestor -af fasta --undo
+Seed:    661283 (Using SPRNG - Scalable Parallel Random Number Generator)
+Time:    Tue Mar  3 04:28:51 2026
+Kernel:  AVX+FMA - 4 threads (4 CPU cores detected)
+
+WARNING: Number of command-line arguments differs from checkpoint
+WARNING: Command-line differs from checkpoint!
+Reading alignment file test/lineage_tree/Lineage5_strain.fa ... Fasta format detected
+Alignment most likely contains DNA/RNA sequences
+Alignment has 243 sequences with 23032 columns, 5719 distinct patterns
+9911 parsimony-informative, 13121 singleton sites, 0 constant sites
+             Gap/Ambiguity  Composition  p-value
+   1  ERR6358707     0.00%    passed     26.10%
+   2  ERR6358859     0.00%    passed     22.81%
+   3  ERR6359110     0.00%    passed     22.35%
+   4  ERR4872200     0.00%    passed     99.22%
+   5  ERR3170434     0.00%    passed     98.65%
+   6  SRR11461703    0.00%    passed     98.51%
+   7  ERR3170444     0.00%    passed     97.97%
+   8  ERR550753      0.00%    passed     99.89%
+   9  ERR2514128     0.00%    passed     98.72%
+  10  SRR7070516     0.00%    passed     98.45%
+  11  ERR4192380     0.00%    passed     99.28%
+  12  ERR3170402     0.00%    passed     99.68%
+  13  ERR3170401     0.00%    failed      0.21%
+  14  ERR4819686     0.00%    passed     97.73%
+  15  ERR4192403     0.00%    passed     99.07%
+  16  ERR2383622     0.00%    passed     99.18%
+  17  ERR5336143     0.00%    passed     93.52%
+  18  ERR3639810     0.00%    passed     98.62%
+  19  ERR4817886     0.00%    passed     98.57%
+  20  ERR4818380     0.00%    passed     98.28%
+  21  ERR2706950     0.00%    passed     98.49%
+  22  ERR2706928     0.00%    passed     82.06%
+  23  ERR2707035     0.00%    passed     84.79%
+  24  ERR2707067     0.00%    passed     89.38%
+  25  ERR552285      0.00%    passed     99.76%
+  26  ERR551544      0.00%    passed     99.90%
+  27  ERR2707002     0.00%    passed     95.84%
+  28  ERR2707170     0.00%    passed     97.85%
+  29  ERR2706945     0.00%    passed     97.85%
+  30  ERR2707138     0.00%    passed     94.22%
+  31  ERR2706978     0.00%    passed     96.30%
+  32  ERR2706930     0.00%    passed     96.07%
+  33  ERR2706914     0.00%    passed     97.39%
+  34  ERR2383626     0.00%    passed     96.20%
+  35  ERR2706910     0.00%    passed     99.52%
+  36  ERR2383627     0.00%    passed     98.68%
+  37  ERR2707015     0.00%    passed     97.71%
+  38  ERR2707097     0.00%    passed     98.33%
+  39  ERR2707066     0.00%    passed     98.46%
+  40  ERR552673      0.00%    passed     99.41%
+  41  ERR550904      0.00%    passed     99.77%
+  42  ERR3170445     0.00%    passed     96.32%
+  43  ERR551005      0.00%    passed     97.87%
+  44  ERR551124      0.00%    failed      0.04%
+  45  ERR2383624     0.00%    passed     99.74%
+  46  ERR3802173     0.00%    passed     99.13%
+  47  ERR3170475     0.00%    passed    100.00%
+  48  ERR4872138     0.00%    passed     98.21%
+  49  ERR4872157     0.00%    passed     99.29%
+  50  ERR4872077     0.00%    passed     98.24%
+  51  ERR4872167     0.00%    passed     98.37%
+  52  ERR4872090     0.00%    passed     99.76%
+  53  ERR4872089     0.00%    passed     98.33%
+  54  ERR4872171     0.00%    passed     96.94%
+  55  ERR4872094     0.00%    passed     99.43%
+  56  ERR4872093     0.00%    passed     97.90%
+  57  ERR4872123     0.00%    passed     98.59%
+  58  ERR4872233     0.00%    passed     97.87%
+  59  ERR2383620     0.00%    passed     97.17%
+  60  ERR2383623     0.00%    passed     98.18%
+  61  ERR2704812     0.00%    passed     95.09%
+  62  ERR2704810     0.00%    passed     86.18%
+  63  ERR2383618     0.00%    passed     99.46%
+  64  ERR2516651     0.00%    passed     97.12%
+  65  ERR552427      0.00%    passed     98.21%
+  66  ERR3170483     0.00%    passed     99.31%
+  67  SRR11461650    0.00%    passed     99.19%
+  68  ERR3170428     0.00%    passed     98.67%
+  69  ERR3170441     0.00%    passed     99.71%
+  70  ERR552506      0.00%    passed     99.12%
+  71  ERR552590      0.00%    passed     99.04%
+  72  SRR7131267     0.00%    passed     98.56%
+  73  ERR2510708     0.00%    passed     97.88%
+  74  ERR4819995     0.00%    passed     99.35%
+  75  ERR4815684     0.00%    passed     99.58%
+  76  SRR7069226     0.00%    passed     97.33%
+  77  SRR7070094     0.00%    passed     98.91%
+  78  ERR868539      0.00%    passed     99.58%
+  79  SRR7131268     0.00%    passed     99.91%
+  80  SRR7517683     0.00%    passed     96.84%
+  81  SRR16058620    0.00%    passed     98.74%
+  82  ERR4821302     0.00%    passed    100.00%
+  83  ERR4819099     0.00%    passed     98.97%
+  84  ERR3170486     0.00%    passed     99.89%
+  85  ERR3170408     0.00%    passed     99.01%
+  86  ERR4817456     0.00%    passed     97.51%
+  87  ERR4192365     0.00%    passed     97.63%
+  88  ERR5336151     0.00%    passed     99.86%
+  89  ERR3170461     0.00%    passed    100.00%
+  90  ERR3170485     0.00%    passed     99.74%
+  91  ERR3170442     0.00%    passed     99.49%
+  92  ERR841430      0.00%    passed      8.68%
+  93  ERR4192364     0.00%    passed     98.57%
+  94  ERR3170414     0.00%    passed     93.43%
+  95  ERR3170415     0.00%    passed     92.57%
+  96  SRR7496542     0.00%    passed     98.62%
+  97  ERR551336      0.00%    passed     91.83%
+  98  ERR551566      0.00%    passed     98.03%
+  99  ERR552261      0.00%    passed     97.96%
+ 100  ERR3170403     0.00%    passed     94.76%
+ 101  ERR841438      0.00%    passed     92.93%
+ 102  ERR4192387     0.00%    passed     98.01%
+ 103  ERR4192545     0.00%    passed     96.85%
+ 104  ERR4192368     0.00%    passed     99.97%
+ 105  ERR3801366     0.00%    passed     98.55%
+ 106  ERR4192366     0.00%    passed     99.70%
+ 107  ERR4829258     0.00%    passed     96.60%
+ 108  SRR7131291     0.00%    passed     97.49%
+ 109  ERR4829215     0.00%    passed     99.69%
+ 110  SRR7131211     0.00%    passed     99.67%
+ 111  ERR4820818     0.00%    passed     99.34%
+ 112  ERR4819464     0.00%    passed     99.88%
+ 113  ERR4830006     0.00%    failed      0.05%
+ 114  ERR3170417     0.00%    passed     97.97%
+ 115  ERR4817658     0.00%    passed     97.94%
+ 116  ERR4192372     0.00%    passed     99.40%
+ 117  ERR2512532     0.00%    passed     99.40%
+ 118  SRR7069999     0.00%    passed     99.20%
+ 119  ERR2446146     0.00%    passed     96.04%
+ 120  ERR3275252     0.00%    passed     96.04%
+ 121  ERR2517377     0.00%    passed     98.68%
+ 122  ERR841433      0.00%    passed     99.38%
+ 123  ERR3170476     0.00%    passed     99.74%
+ 124  ERR3170424     0.00%    passed     99.23%
+ 125  ERR3170465     0.00%    passed     99.80%
+ 126  ERR3170464     0.00%    passed     99.96%
+ 127  ERR5336150     0.00%    passed     98.90%
+ 128  ERR4872135     0.00%    passed     99.16%
+ 129  ERR5336170     0.00%    passed     99.64%
+ 130  ERR552605      0.00%    passed     99.43%
+ 131  ERR3806449     0.00%    passed     98.34%
+ 132  ERR551620      0.00%    passed     98.63%
+ 133  SRR16057942    0.00%    passed     98.94%
+ 134  ERR4192367     0.00%    passed     99.82%
+ 135  ERR2514506     0.00%    passed     98.62%
+ 136  SRR16058685    0.00%    passed     99.97%
+ 137  ERR3806818     0.00%    passed     99.56%
+ 138  SRR2101040     0.00%    passed     99.20%
+ 139  SRR16057931    0.00%    passed     99.97%
+ 140  ERR4815985     0.00%    passed     99.63%
+ 141  ERR4815311     0.00%    passed     99.42%
+ 142  SRR16058371    0.00%    passed     99.84%
+ 143  ERR5336146     0.00%    passed     99.29%
+ 144  ERR5330907     0.00%    passed     99.70%
+ 145  ERR2513725     0.00%    passed     98.53%
+ 146  ERR400538      0.00%    passed     99.21%
+ 147  ERR4816793     0.00%    passed     99.78%
+ 148  SRR18715441    0.00%    passed     99.87%
+ 149  SRR7131076     0.00%    passed     99.99%
+ 150  ERR4829304     0.00%    passed     99.95%
+ 151  ERR3170471     0.00%    passed     99.44%
+ 152  SRR2100183     0.00%    passed     97.72%
+ 153  SRR16058266    0.00%    passed     99.69%
+ 154  ERR3275857     0.00%    passed     99.87%
+ 155  SRR7069774     0.00%    passed     99.85%
+ 156  ERR2513646     0.00%    passed     99.85%
+ 157  ERR3170467     0.00%    passed     99.82%
+ 158  SRR11461672    0.00%    passed     99.37%
+ 159  ERR2514205     0.00%    passed     98.85%
+ 160  SRR7070014     0.00%    passed     98.82%
+ 161  ERR3170419     0.00%    passed     99.47%
+ 162  ERR2383625     0.00%    failed      0.01%
+ 163  ERR3170477     0.00%    passed     94.00%
+ 164  ERR4192379     0.00%    passed     95.79%
+ 165  ERR4192370     0.00%    passed     98.75%
+ 166  ERR4192371     0.00%    passed     98.95%
+ 167  ERR2383619     0.00%    passed     99.76%
+ 168  ERR2704809     0.00%    passed     97.76%
+ 169  ERR4829493     0.00%    passed     99.52%
+ 170  ERR4192369     0.00%    passed     99.69%
+ 171  ERR4192373     0.00%    passed     96.51%
+ 172  ERR4872250     0.00%    passed     96.28%
+ 173  ERR4872251     0.00%    passed     91.60%
+ 174  ERR4821260     0.00%    passed     95.82%
+ 175  ERR4821913     0.00%    passed     96.24%
+ 176  ERR3170418     0.00%    passed     98.09%
+ 177  ERR3170455     0.00%    passed     98.42%
+ 178  ERR3170456     0.00%    passed     95.50%
+ 179  ERR4816861     0.00%    passed     90.24%
+ 180  ERR3170484     0.00%    passed     95.38%
+ 181  ERR2383621     0.00%    passed     97.11%
+ 182  ERR3170407     0.00%    passed     89.37%
+ 183  SRR11444072    0.00%    passed     98.21%
+ 184  ERR3170397     0.00%    passed     98.77%
+ 185  ERR3170398     0.00%    passed     99.14%
+ 186  ERR841434      0.00%    passed     98.82%
+ 187  SRR11444148    0.00%    passed     90.33%
+ 188  ERR4192050     0.00%    passed     90.33%
+ 189  ERR2515090     0.00%    passed     87.73%
+ 190  ERR552345      0.00%    passed     99.61%
+ 191  ERR2704808     0.00%    passed     98.86%
+ 192  ERR3170473     0.00%    passed     99.34%
+ 193  ERR3170435     0.00%    passed     99.54%
+ 194  SRR11444026    0.00%    passed     99.78%
+ 195  SRR7070347     0.00%    passed     99.76%
+ 196  SRR11444255    0.00%    passed     99.81%
+ 197  ERR4814556     0.00%    passed     99.77%
+ 198  ERR3170440     0.00%    passed     91.38%
+ 199  ERR3170404     0.00%    passed     99.45%
+ 200  SRR11444083    0.00%    passed     99.89%
+ 201  ERR4815565     0.00%    passed     99.86%
+ 202  SRR11444034    0.00%    passed     99.62%
+ 203  ERR4192053     0.00%    passed     98.68%
+ 204  SRR11444195    0.00%    passed     98.68%
+ 205  ERR4192052     0.00%    passed     99.49%
+ 206  SRR11444264    0.00%    passed     99.49%
+ 207  SRR11444206    0.00%    passed     99.61%
+ 208  SRR11444394    0.00%    passed     99.93%
+ 209  ERR3170480     0.00%    passed     90.38%
+ 210  SRR11444382    0.00%    passed     96.69%
+ 211  ERR3170490     0.00%    passed     98.46%
+ 212  ERR841494      0.00%    passed     99.43%
+ 213  SRR11444232    0.00%    passed     97.63%
+ 214  ERR3170459     0.00%    passed     99.16%
+ 215  SRR11444253    0.00%    passed     98.75%
+ 216  ERR4192047     0.00%    passed     98.58%
+ 217  ERR2181457     0.00%    passed     98.58%
+ 218  ERR3170463     0.00%    passed     95.69%
+ 219  ERR3170457     0.00%    passed     97.33%
+ 220  ERR3170436     0.00%    passed     99.51%
+ 221  SRR11444290    0.00%    passed     99.65%
+ 222  ERR3170450     0.00%    passed     99.47%
+ 223  ERR3170451     0.00%    passed     99.68%
+ 224  ERR4192051     0.00%    passed     96.87%
+ 225  SRR11444135    0.00%    passed     96.87%
+ 226  SRR11444372    0.00%    passed     99.06%
+ 227  ERR3170488     0.00%    passed     99.83%
+ 228  ERR3170423     0.00%    passed     99.91%
+ 229  ERR3170491     0.00%    passed     99.29%
+ 230  ERR400492      0.00%    passed     91.99%
+ 231  ERR4192044     0.00%    passed     98.54%
+ 232  ERR3170443     0.00%    passed     96.46%
+ 233  ERR3170399     0.00%    passed     98.60%
+ 234  ERR3170413     0.00%    passed     96.00%
+ 235  ERR552189      0.00%    passed     99.68%
+ 236  ERR841495      0.00%    passed     98.40%
+ 237  ERR841435      0.00%    passed     98.08%
+ 238  ERR3170474     0.00%    passed     96.81%
+ 239  ERR3170422     0.00%    passed     94.70%
+ 240  SRR11461695    0.00%    passed     96.47%
+ 241  SRR2101293     0.00%    passed     98.72%
+ 242  ERR4821609     0.00%    passed     98.21%
+ 243  tb.ancestor    0.00%    failed      0.00%
+****  TOTAL          0.00%  5 sequences failed composition chi2 test (p-value<5%; df=3)
+
+CHECKPOINT: Initial tree restored
+
+NOTE: 180 MB RAM (0 GB) is required!
+CHECKPOINT: Model parameters restored, LogL: -336850.839
+--------------------------------------------------------------------
+|             INITIALIZING CANDIDATE TREE SET                      |
+--------------------------------------------------------------------
+CHECKPOINT: Candidate tree set restored, best LogL: -336850.833
+Finish initializing candidate tree set (20)
+Current best tree score: -336850.833 / CPU time: 0.000
+Number of iterations: 283
+TREE SEARCH COMPLETED AFTER 283 ITERATIONS / Time: 0h:0m:0s
+
+--------------------------------------------------------------------
+|                    FINALIZING TREE SEARCH                        |
+--------------------------------------------------------------------
+CHECKPOINT: Final model parameters restored
+BEST SCORE FOUND : -336850.839
+Ancestral state probabilities printed to test/lineage_tree/Lineage5_strain_btp.state
+Total tree length: 2.416
+
+Total number of iterations: 283
+CPU time used for tree search: 0.008 sec (0h:0m:0s)
+Wall-clock time used for tree search: 0.002 sec (0h:0m:0s)
+Total CPU time used: 15.902 sec (0h:0m:15s)
+Total wall-clock time used: 15.668 sec (0h:0m:15s)
+
+Analysis results written to: 
+  IQ-TREE report:                test/lineage_tree/Lineage5_strain_btp.iqtree
+  Maximum-likelihood tree:       test/lineage_tree/Lineage5_strain_btp.treefile
+  Likelihood distances:          test/lineage_tree/Lineage5_strain_btp.mldist
+  Ancestral state:               test/lineage_tree/Lineage5_strain_btp.state
+  Screen log file:               test/lineage_tree/Lineage5_strain_btp.log
+
+Date and Time: Tue Mar  3 04:29:07 2026

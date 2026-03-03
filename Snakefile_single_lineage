@@ -188,10 +188,8 @@ rule build_tree:
             --mem {resources.mem_mb}M \
             -T {threads} \
             --ancestral \
-            -o tb \
-            -af fasta \
-            -bb 1000 \
-            -alrt 1000
+            -o tb.ancestor \
+            -af fasta
         """
 
 
@@ -250,6 +248,9 @@ rule branch_mutations:
         python ../../scripts/filter_lineage_defining.py \
             ${{lineage}}_db_mutation2.txt \
             ${{lineage}} \
+            ../../{config[candidate_nodes_file]} \
+            ../../{config[ancestor_db_mutation_file]} \
+            ../../{config[lineage_ancestor_file]} \
             > ${{lineage}}_db_mutation2_rmanc.txt
 
         # Generate per-node SNP files

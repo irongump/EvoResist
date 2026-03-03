@@ -113,6 +113,17 @@ my %children;
             $pos++;
         }
         elsif ($ch eq ')') {
+            # First, flush any buffered leaf (the last child before this closing paren)
+            if ($buf ne '') {
+                my $label = $buf;
+                $label =~ s/:\S+$//;
+                $label =~ s/^\s+|\s+$//g;
+                if ($label ne '') {
+                    $parent_of{$label} = $cur_parent if defined $cur_parent;
+                    push @{ $children{$cur_parent} }, $label if defined $cur_parent;
+                }
+                $buf = '';
+            }
             # End of children list; what follows is the internal node label
             $pos++;
             # read label + optional branch length
