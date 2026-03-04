@@ -120,6 +120,7 @@ rule build_tree:
             SNV_DIR + "/{sample}.snp",
             sample=get_filtered_samples(wc),
         ),
+        pos=f"data/old_cfa/{LINEAGE}_delete.pos",
         anc_cfa=config["ancestor_concat_fasta"],
         ref=config["reference"],
     output:
@@ -128,7 +129,10 @@ rule build_tree:
     params:
         lineage=LINEAGE,
         tree_dir=f"{OUTPUT_DIR}/lineage_tree",
-        cfa_dir=f"{OUTPUT_DIR}/cfa",
+        temp_cfa=f"{tree_dir}/{LINEAGE}_tmp.fa",
+        new_cfa=f"{tree_dir}/{LINEAGE}.fa",
+        new_pos=f"{tree_dir}/{LINEAGE}.pos",
+        old_cfa=f"data/old_cfa/{LINEAGE}.fa",
         snv_dir=SNV_DIR,
     threads: config["threads_tree"]
     resources:
@@ -141,43 +145,16 @@ rule build_tree:
         cfa_dir={params.cfa_dir}
         snv_dir={params.snv_dir}
 
-        pos_file="${{tree_dir}}/${{lineage}}.pos"
-        snp_strain_file="${{tree_dir}}/${{lineage}}_snp_strain.txt"
-        cfa_strain_file="${{tree_dir}}/${{lineage}}_cfa_strain.txt"
-        > "$pos_file"
-        > "$snp_strain_file"
-        > "$cfa_strain_file"
-
-        # Collect SNP positions from filtered samples
-        while IFS= read -r strain; do
-            snp_file="${{snv_dir}}/${{strain}}.snp"
-            if [ -f "$snp_file" ]; then
-                awk '{{print $1}}' "$snp_file" >> "$pos_file"
-                echo "$strain" >> "$snp_strain_file"
-            else
-                echo "Warning: ${{strain}} snp file not found, skipping." >&2
-            fi
-        done < "{input.flt_strain}"
-
-        sort -nu "$pos_file" -o "$pos_file"
-
-        # Build CFA/SNP file list: prefer .cfa if available, else use .snp
-        while IFS= read -r strain; do
-            cfa_file="${{cfa_dir}}/${{strain}}.cfa"
-            snp_file="${{snv_dir}}/${{strain}}.snp"
-            if [ -f "$cfa_file" ]; then
-                echo "$cfa_file" >> "$cfa_strain_file"
-            elif [ -f "$snp_file" ]; then
-                echo "$snp_file" >> "$cfa_strain_file"
-            else
-                echo "Warning: ${{strain}} neither cfa nor snp file found, skipping." >&2
-            fi
-        done < "$snp_strain_file"
-        echo "{input.anc_cfa}" >> "$cfa_strain_file"
+        # Build CFA/SNP file list: using old cfa file to create new cfa #revise line
+        
+        echo "{input.anc_cfa}" >> "{input.flt_strain}"
 
         # Generate concatenated FASTA alignment
-        python scripts/snp2cfa.py "$pos_file" "$cfa_strain_file"
-
+        python scripts/create_cfa.py "{input.flt_strain}" old_cfa temp_cfa
+        
+        #remove invariant and missing info more than 5% sites
+        perl scripts/del_invariant_customseq.pl temp_cfa pos new_cfa new_pos
+        
         # Verify alignment was created
         cfa="${{tree_dir}}/${{lineage}}.fa"
         if [ ! -f "$cfa" ]; then
@@ -206,6 +183,7 @@ rule branch_mutations:
     input:
         tree=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_btp.treefile",
         state=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_btp.state",
+        new_pos=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}.poa"
         low_ebr=config["low_ebr_file"],
         ref=config["reference"],
     output:
@@ -233,7 +211,7 @@ rule branch_mutations:
         # Extract ancestral sequences for each node
         perl ../../scripts/nodes_base_locus_iqtree.pl \
             ${{lineage}}_btp.treefile \
-            ../../${{cfa_dir}}/${{lineage}}_delete.pos \
+            {input.new_pos} \
             ${{lineage}}_btp.state \
             ${{lineage}}.fa \
             ${{lineage}}.db \
