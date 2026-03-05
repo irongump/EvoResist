@@ -6,9 +6,10 @@ Run tree building and branch mutation analysis for a single lineage.
 Given a lineage name the pipeline will:
   1. Auto-locate the corresponding strain list in strain_ids_dir
   2. Filter samples by depth (sample_flt.R)
-  3. Generate concatenated FASTA alignment (snp2cfa.py)
-  4. Build phylogenetic tree with IQ-TREE
-  5. Extract per-branch mutations and annotate them
+  3. Generate concatenated FASTA alignment from pre-built CFA (create_cfa.py)
+  4. Remove invariant/high-missing sites (del_invariant_customseq.pl)
+  5. Build phylogenetic tree with IQ-TREE
+  6. Extract per-branch mutations and annotate them
 
 Usage:
   snakemake -s Snakefile_single_lineage --cores <N> \\
@@ -21,12 +22,13 @@ Usage:
 Example:
   snakemake -s Snakefile_single_lineage --cores 4 \\
       --configfile config/config.yaml \\
-      --config lineage=Lineage1.1_strain depth_thres=50
+      --config lineage=Lineage7_strain
 
 Notes:
-  - Per-sample .snp files must already exist under the directory
-    specified by snv_dir in the config (default: data/snv/).
-  - Per-sample .cfa files, if present, must exist under {output_dir}/cfa/.
+  - Pre-built CFA files must exist under data/old_cfa/ as
+    {old_cfa_name}.fa and {old_cfa_name}_delete.pos.
+    By default old_cfa_name matches the lineage name; override in config
+    when they differ (e.g. lineage=Lineage7_strain, old_cfa_name=Lineage7).
   - output_dir must be a single-level directory name relative to the
     project root (e.g. "output", not "my/custom/output"); this is
     enforced at pipeline start.
@@ -43,8 +45,11 @@ if os.sep in OUTPUT_DIR or "/" in OUTPUT_DIR:
         f"output_dir must be a single-level directory name (e.g. 'output'), "
         f"got: '{OUTPUT_DIR}'"
     )
-SNV_DIR    = config.get("snv_dir", "data/snv")
 DEPTH_THRES = config.get("depth_thres", 30)
+# Base name used to locate files under data/old_cfa/; defaults to LINEAGE.
+# Override in config if the old_cfa filename differs from the lineage name
+# (e.g. lineage=Lineage7_strain but old_cfa files are named Lineage7.*).
+OLD_CFA_NAME = config.get("old_cfa_name", LINEAGE)
 
 # ---------------------------------------------------------------------------
 # Auto-locate the strain list file for the requested lineage
@@ -59,17 +64,6 @@ if not os.path.exists(STRAIN_FILE):
 FLT_STRAIN_FILE = os.path.join(
     OUTPUT_DIR, "lineage_tree", f"{LINEAGE}_depth_{DEPTH_THRES}.txt"
 )
-
-# ---------------------------------------------------------------------------
-# Helper: read sample IDs from the filtered strain file (post-checkpoint)
-# ---------------------------------------------------------------------------
-def get_filtered_samples(wildcards):
-    """Return sample list from the filtered strain file produced by the
-    filter_samples checkpoint."""
-    flt_file = checkpoints.filter_samples.get().output.flt_strain
-    with open(flt_file) as fh:
-        return [line.strip() for line in fh if line.strip()]
-
 
 # =============================================================================
 # Final target
@@ -116,24 +110,18 @@ checkpoint filter_samples:
 rule build_tree:
     input:
         flt_strain=FLT_STRAIN_FILE,
-        snps=lambda wc: expand(
-            SNV_DIR + "/{sample}.snp",
-            sample=get_filtered_samples(wc),
-        ),
-        pos=f"data/old_cfa/{LINEAGE}_delete.pos",
-        anc_cfa=config["ancestor_concat_fasta"],
+        pos=f"data/old_cfa/{OLD_CFA_NAME}_delete.pos",
         ref=config["reference"],
     output:
         tree=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_btp.treefile",
         state=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_btp.state",
+        new_pos=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}.pos",
     params:
         lineage=LINEAGE,
         tree_dir=f"{OUTPUT_DIR}/lineage_tree",
-        temp_cfa=f"{tree_dir}/{LINEAGE}_tmp.fa",
-        new_cfa=f"{tree_dir}/{LINEAGE}.fa",
-        new_pos=f"{tree_dir}/{LINEAGE}.pos",
-        old_cfa=f"data/old_cfa/{LINEAGE}.fa",
-        snv_dir=SNV_DIR,
+        temp_cfa=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_tmp.fa",
+        new_cfa=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}.fa",
+        old_cfa=f"data/old_cfa/{OLD_CFA_NAME}.fa",
     threads: config["threads_tree"]
     resources:
         mem_mb=200000,
@@ -142,36 +130,37 @@ rule build_tree:
         set -euo pipefail
         lineage={params.lineage}
         tree_dir={params.tree_dir}
-        cfa_dir={params.cfa_dir}
-        snv_dir={params.snv_dir}
+        mkdir -p "$tree_dir"
 
-        # Build CFA/SNP file list: using old cfa file to create new cfa #revise line
-        
-        echo "{input.anc_cfa}" >> "{input.flt_strain}"
+        # Build combined strain list: filtered strains + ancestor sequence "tb"
+        combined_strain_file="${{tree_dir}}/${{lineage}}_combined_strains.txt"
+        cp "{input.flt_strain}" "$combined_strain_file"
+        echo "tb" >> "$combined_strain_file"
 
-        # Generate concatenated FASTA alignment
-        python scripts/create_cfa.py "{input.flt_strain}" old_cfa temp_cfa
-        
-        #remove invariant and missing info more than 5% sites
-        perl scripts/del_invariant_customseq.pl temp_cfa pos new_cfa new_pos
-        
+        # Extract sequences from old CFA for the selected strains
+        python scripts/create_cfa.py "$combined_strain_file" "{params.old_cfa}" "{params.temp_cfa}"
+
+        # Remove invariant and sites with >5% missing data
+        perl scripts/del_invariant_customseq.pl "{params.temp_cfa}" "{input.pos}" "{params.new_cfa}" "{output.new_pos}"
+
         # Verify alignment was created
-        cfa="${{tree_dir}}/${{lineage}}.fa"
-        if [ ! -f "$cfa" ]; then
-            echo "Error: Expected CFA file $cfa not found!" >&2
+        if [ ! -f "{params.new_cfa}" ]; then
+            echo "Error: Expected CFA file {params.new_cfa} not found!" >&2
             exit 1
         fi
 
-        # Build tree with IQ-TREE
-        iqtree2 -s "$cfa" \
+        # Build tree with IQ-TREE (GTR+F+R4 model with bootstrap and SH-aLRT support)
+        iqtree2 -s "{params.new_cfa}" \
             -m GTR+F+R4 \
             --seqtype DNA \
             --prefix "${{tree_dir}}/${{lineage}}_btp" \
             --mem {resources.mem_mb}M \
             -T {threads} \
             --ancestral \
-            -o tb.ancestor \
-            -af fasta
+            -o tb \
+            -af fasta \
+            -bb 1000 \
+            -alrt 1000
         """
 
 
@@ -183,7 +172,7 @@ rule branch_mutations:
     input:
         tree=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_btp.treefile",
         state=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}_btp.state",
-        new_pos=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}.poa"
+        new_pos=f"{OUTPUT_DIR}/lineage_tree/{LINEAGE}.pos",
         low_ebr=config["low_ebr_file"],
         ref=config["reference"],
     output:
@@ -211,7 +200,7 @@ rule branch_mutations:
         # Extract ancestral sequences for each node
         perl ../../scripts/nodes_base_locus_iqtree.pl \
             ${{lineage}}_btp.treefile \
-            {input.new_pos} \
+            ${{lineage}}.pos \
             ${{lineage}}_btp.state \
             ${{lineage}}.fa \
             ${{lineage}}.db \
