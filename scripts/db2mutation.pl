@@ -1,24 +1,48 @@
-#!/usr/bin/perl
-# db2mutation.pl
-#
-# Convert the .db file (branch mutation database) produced by
-# nodes_base_locus_iqtree.pl to the standard mutation text format.
-#
-# Usage:
-#   perl db2mutation.pl <input.db>
-#
-# The .db file has tab-separated columns:
-#   node_id  depth  POS_ALT  db
-#
-# Output (stdout) is the same content, printed line by line.
+#Filter host selection phylogeny nodes and SNVs.
+#Average SNVs counts from node to tips were calculated,
+#If the counts > e.g. 0.5 SNV/year * (2021-1940) = 40:
+#   Output the node and SNVs
+#else:
+#   ignore the node
 
-use strict;
 use warnings;
+use strict;
+use List::Util qw/max min/;
 
-my $db_file = $ARGV[0] or die "Usage: $0 <input.db>\n";
+die "usage:perl $0\n" if @ARGV==0;
 
-open my $fh, '<', $db_file or die "Cannot open '$db_file': $!\n";
-while (<$fh>) {
-    print;
+open DB,"<$ARGV[0]" or die "db file $!\n";
+$/ = '>';
+my %node_count; #node to snv counts
+my %node_snvs; #node to snvs
+<DB>;
+while (<DB>){
+    chomp;
+    my @lines = split /\n/;
+    my $nodeid = $lines[0];
+    if ($lines[1] =~/no site/){
+        $node_count{$nodeid} = 0;
+        $node_snvs{$nodeid} = 0;
+    }
+    else {
+        my @sites = split /\s+/,$lines[1];
+        my @snvs = split //,$lines[5];
+        my $num = scalar @sites;
+        my @mut; #mutations
+            for (0..$#sites){
+                push @mut, $sites[$_]."_".$snvs[$_];
+            }
+        $node_count{$nodeid} = $num;
+        $node_snvs{$nodeid} = \@mut;
+    }
 }
-close $fh;
+close DB;
+
+for (keys %node_snvs){
+    my $node = $_;
+    if ($node_count{$node} !=0){ 
+        for (@{$node_snvs{$node}}){
+            print "$node\t$node_count{$node}\t$_\tdb\n";
+        }
+    }
+}

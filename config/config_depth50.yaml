@@ -1,11 +1,11 @@
 # ==============================================================================
-# EvoResist Pipeline Configuration - TEST (Lineage5)
+# EvoResist Pipeline Configuration - TEST (Lineage7)
 # ==============================================================================
-# This config uses the test SNV files in test/snv/ as input and writes
-# all pipeline outputs under the test/ directory.
+# Test config for the single-lineage pipeline using Lineage7_strain.
+# Pre-built CFA files for Lineage7 must exist under data/old_cfa/.
 
 # -- Output directory ---------------------------------------------------------
-output_dir: "test"
+output_dir: "depth50"
 
 # -- Reference data -----------------------------------------------------------
 reference: "data/tb.ancestor.fasta"
@@ -15,8 +15,7 @@ ancestor_concat_fasta: "data/tb.ancestor.concatenated.fasta"
 strain_ids_dir: "data/strain_ids"
 
 # -- SNV input directory ------------------------------------------------------
-# Test SNV files live under test/snv/ rather than data/snv/
-snv_dir: "test/snv"
+snv_dir: "data/snv"
 
 # -- SRA data -----------------------------------------------------------------
 sra_dir: "data/sra"
@@ -47,4 +46,5 @@ threads_annotation: 4
 
 # -- Depth filtering ----------------------------------------------------------
 depth_file: "data/100k_depth.txt"
-depth_thres: 30
+depth_thres: 50
+

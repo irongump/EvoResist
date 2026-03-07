@@ -1,0 +1,50 @@
+# ==============================================================================
+# EvoResist Pipeline Configuration - TEST (Lineage7)
+# ==============================================================================
+# Test config for the single-lineage pipeline using Lineage7_strain.
+# Pre-built CFA files for Lineage7 must exist under data/old_cfa/.
+
+# -- Output directory ---------------------------------------------------------
+output_dir: "depth20"
+
+# -- Reference data -----------------------------------------------------------
+reference: "data/tb.ancestor.fasta"
+ancestor_concat_fasta: "data/tb.ancestor.concatenated.fasta"
+
+# -- Sample information -------------------------------------------------------
+strain_ids_dir: "data/strain_ids"
+
+# -- SNV input directory ------------------------------------------------------
+snv_dir: "data/snv"
+
+# -- SRA data -----------------------------------------------------------------
+sra_dir: "data/sra"
+
+# -- Filter / annotation data -------------------------------------------------
+low_ebr_file: "data/RLC_lowmapK50E4_H37Rv_pos.txt"
+snp_freq_file: "data/convg_5_mutation_snp_freq.txt"
+repeat_region_file: "data/repeat_region.txt"
+mobile_element_file: "data/mobile_element.txt"
+
+# -- Ancestor mutation data ---------------------------------------------------
+ancestor_mutation_file: "data/100k_5000_anc_db_mutation2_rmanc.txt"
+ancestor_db_mutation_file: "data/100k_5000_db_mutation2.txt"
+candidate_nodes_file: "data/100k_5000_level1_candidate_nodes.txt"
+lineage_ancestor_file: "data/lineage_ancestor_nodes.csv"
+
+# -- External tools -----------------------------------------------------------
+varscan_jar: "scripts/VarScan.v2.3.9.jar"
+
+# -- Simulation parameters ---------------------------------------------------
+num_simulations: 1000
+num_mutations: 2345799
+
+# -- Resource settings --------------------------------------------------------
+threads_per_sample: 2
+threads_tree: 4
+threads_annotation: 4
+
+# -- Depth filtering ----------------------------------------------------------
+depth_file: "data/100k_depth.txt"
+depth_thres: 20
+

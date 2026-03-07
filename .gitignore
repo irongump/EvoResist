@@ -1,12 +1,5 @@
 .snakemake/
-test/lineage_tree/*.fa
-test/lineage_tree/*.state
-test/lineage_tree/*.mldist
-test/lineage_tree/*.ckp.gz
-test/lineage_tree/*.bionj
-test/lineage_tree/*.iqtree
-test/lineage_tree/*.log
-test/lineage_tree/*.db
-test/lineage_tree/*_homoplasy.txt
-test/lineage_tree/*.pos
-test/lineage_tree/*.treefile
+test/
+depth20/
+depth50/
+depth80/

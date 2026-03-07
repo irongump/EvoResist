@@ -1,39 +1,41 @@
 import sys
 from Bio import SeqIO
 
-# Ensure correct usage
-if len(sys.argv) < 4:
-    print("Usage: python script.py <strain_list> <input_fasta> <output_fasta>")
-    sys.exit(1)
+def filter_and_linearize_fasta(strain_list_path, input_fasta_path, output_fasta_path):
+    """
+    Reads a list of IDs, filters an input FASTA for matching records,
+    and writes them to a new file where each sequence occupies a single line.
+    """
+    # 1. Load target strain IDs into a set for O(1) lookup speed
+    target_strains = set()
+    try:
+        with open(strain_list_path, 'r') as f:
+            for line in f:
+                identifier = line.strip()
+                if identifier:
+                    target_strains.add(identifier)
+    except FileNotFoundError:
+        print(f"Error: Strain list file '{strain_list_path}' not found.")
+        return
 
-strain_file = sys.argv[1]
-old_cfa = sys.argv[2]
-output_cfa = sys.argv[3]
+    # 2. Parse input and write matching records directly to the output
+    count = 0
+    try:
+        with open(output_fasta_path, 'w') as output_handle:
+            # SeqIO.parse reads the file record-by-record (memory efficient)
+            for record in SeqIO.parse(input_fasta_path, "fasta"):
+                if record.id in target_strains:
+                    # 'fasta-2line' forces the sequence to stay on one line
+                    SeqIO.write(record, output_handle, "fasta-2line")
+                    count += 1
+        
+        print(f"Done. Successfully wrote {count} sequences to {output_fasta_path}")
 
-# 1. Read the list of target strains into a set for O(1) lookup speed
-strains_to_keep = set()
-with open(strain_file, 'r') as f:
-    for line in f:
-        identifier = line.strip()
-        if identifier:
-            strains_to_keep.add(identifier)
+    except Exception as e:
+        print(f"An error occurred during processing: {e}")
 
-# 2. Parse the old_cfa and filter sequences
-# We use a generator expression to save memory for large genomic files
-selected_records = []
-
-# SeqIO.parse returns an iterator of SeqRecord objects
-for record in SeqIO.parse(old_cfa, "fasta"):
-    # Check if the record ID or name matches your list
-    if record.id in strains_to_keep:
-        selected_records.append(record)
-        # Optional: remove from set to track if any strains were missing
-        # strains_to_keep.remove(record.id)
-
-# 3. Output the selected records to the new file
-if selected_records:
-    with open(output_cfa, "w") as output_handle:
-        SeqIO.write(selected_records, output_handle, "fasta")
-    print(f"Successfully wrote {len(selected_records)} sequences to {output_cfa}")
-else:
-    print("No matching strains found in the input FASTA file.")
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        print("Usage: python script.py <strain_list.txt> <input.fasta> <output.fasta>")
+    else:
+        filter_and_linearize_fasta(sys.argv[1], sys.argv[2], sys.argv[3])

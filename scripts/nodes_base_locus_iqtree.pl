@@ -1,272 +1,233 @@
-#!/usr/bin/perl
-# nodes_base_locus_iqtree.pl
-#
-# Extract per-branch SNP mutations from IQ-TREE's marginal ancestral state
-# reconstruction and write them in the standard db format.
-#
-# Usage (run from the lineage_tree directory):
-#   perl nodes_base_locus_iqtree.pl \
-#       <treefile>       \
-#       <delete_pos>     \   # ordered list of genomic positions (1-based)
-#       <state_file>     \   # IQ-TREE .state file
-#       <alignment_fa>   \   # alignment FASTA used for tree building
-#       <output_db>      \   # output: branch mutations in db format
-#       <output_homo>        # output: homoplasy mutations (repeated across branches)
-#
-# Output (.db) format per line:
-#   node_id TAB depth TAB POS_ALT TAB db
-#
-# where POS is the 1-based genomic position (from delete_pos) and ALT is the
-# derived base at that node.
-
-use strict;
+#!~/.conda/envs/bioperl/bin/perl
 use warnings;
+use strict;
+use Bio::TreeIO;
+use List::Util qw/max min/;
 
-# --------------------------------------------------------------------------
-# Arguments
-# --------------------------------------------------------------------------
-my ($treefile, $delete_pos_file, $state_file, $aln_fa, $out_db, $out_homo) = @ARGV;
+die "usage:perl $0 <iqtree_tree_file> <locus_file> 
+<ancestor_seq.file> <raw.fasta> <output_db_file> <output_homoplasy_file>\n" if @ARGV==0;
 
-die "Usage: $0 treefile delete_pos state_file aln_fa out_db out_homo\n"
-    unless defined $out_homo;
-
-# --------------------------------------------------------------------------
-# Read genomic positions (delete_pos = ordered list of positions used)
-# --------------------------------------------------------------------------
-my @positions;
-if (-e $delete_pos_file) {
-    open my $fh, '<', $delete_pos_file or die "Cannot open $delete_pos_file: $!";
-    while (<$fh>) {
-        chomp;
-        push @positions, $_ if /^\d+$/;
-    }
-    close $fh;
-}
-
-# --------------------------------------------------------------------------
-# Read alignment FASTA → leaf states
-# --------------------------------------------------------------------------
-my %leaf_seq;   # {sample_name => sequence_str}
-{
-    open my $fh, '<', $aln_fa or die "Cannot open $aln_fa: $!";
-    my ($name, @parts);
-    while (<$fh>) {
-        chomp;
-        if (/^>(\S+)/) {
-            if (defined $name) { $leaf_seq{$name} = join('', @parts); }
-            $name = $1;  @parts = ();
-        } else {
-            push @parts, $_;
+my $treefile = $ARGV[0];
+my $treeio = new Bio::TreeIO(-format=>'newick',-file=>$treefile);
+my (%ancestor_descendant, %strain_node, %node_sequence, %hash_all, %hash_descendant, $total_node);
+if (my $tree = $treeio->next_tree) {
+    my @nodes = $tree->get_nodes;
+    for (@nodes){
+        my $des = $_;
+        my $anc = $des->ancestor;
+        my $outdes = $des->id;
+        if (defined $anc){
+            my $outanc = $anc->id;
+            if ($outanc =~ /.+/ and $outdes =~ /.+/){
+                print "$outanc\t$outdes\n";
+                push @{$ancestor_descendant{$outanc}}, $outdes;
+                $hash_descendant{$outdes} = $outanc;
+                $hash_all{$outanc} = 1;
+                $hash_all{$outdes} = 2;
+            }
         }
     }
-    if (defined $name) { $leaf_seq{$name} = join('', @parts); }
-    close $fh;
+    $total_node = @nodes;
 }
 
-my $n_sites = @positions ? scalar(@positions) : do {
-    my ($first_seq) = values %leaf_seq;
-    defined $first_seq ? length($first_seq) : 0;
-};
+#my @desset = ('Node1');
+#$ancestor_descendant{'Node0'} = \@desset;
 
-# If no positions file, create fake 1..n_sites positions
-unless (@positions) {
-    @positions = (1..$n_sites);
-}
-
-# --------------------------------------------------------------------------
-# Parse Newick tree → parent_of, children, depth_from_root
-# --------------------------------------------------------------------------
-my %parent_of;
-my %children;
-
-{
-    open my $fh, '<', $treefile or die "Cannot open $treefile: $!";
-    my $nwk = do { local $/; <$fh> };
-    close $fh;
-    $nwk =~ s/\s+//g;
-    $nwk =~ s/;$//;
-
-    my $node_counter = 0;
-
-    # Use a simple state-machine parser
-    my @stack;  # stack of parent node names
-    my $buf = '';
-
-    sub finish_node {
-        my ($label, $parent) = @_;
-        $label =~ s/:\S+$//;   # strip branch length
-        $label =~ s/^\s+|\s+$//g;
-        return $label;
+my (@node_numeric, @node_text);
+for (keys %hash_all){
+    my $node_type = $_;
+    if ($node_type =~ /^Node\d+$/i) {
+        $node_type =~ s/Node//i;
+        push @node_numeric, $node_type;
     }
+    else {
+        push @node_text, $node_type;    
+    }
+}
 
-    # Iterative Newick parser
-    my $pos = 0;
-    my $cur_parent = undef;
+my $max_node = (max @node_numeric);
+#my %number_node;
+#map {$number_node{'node'.$_} = 1} @node_numeric;
 
-    while ($pos < length($nwk)) {
-        my $ch = substr($nwk, $pos, 1);
+my $node_text_count = @node_text;
+#for (0..$#node_text){
+#    my $i = $_;
+#    my $strain = $node_text[$i];
+#    for (1..$total_node){
+#        my $j = $_;
+#        if (!exists $number_node{'node'.$j}){
+#            $strain_node{$strain} = 'node'.$j;
+#            $number_node{'node'.$j} = 1;
+#            last;
+#        }      
+#    }
+#}
+#my $strain_node_count = scalar keys %strain_node;
+#print "max:$max_node\t$node_text_count\t$strain_node_count\n";
+#die "strain_node_count ne node_text_count!\n" if $node_text_count != $strain_node_count; 
 
-        if ($ch eq '(') {
-            push @stack, $cur_parent;
-            $cur_parent = undef;
-            $buf = '';
-            $pos++;
+my @node_n;
+open ANS,"<$ARGV[2]" or die "ancestor seq file $!\n";
+while (<ANS>){
+    chomp;
+    if (/Node/ and $_ !~ /Site/){
+        my @node = split;
+        #push @node_n, $node[0];
+        $node_sequence{$node[0]} .= $node[2]
+    
+    }
+}
+close ANS;
+my $node_count_N = scalar keys %node_sequence;#@node_n;
+my $node_seq_count = scalar keys %node_sequence;
+#die "sequence count:$node_seq_count ne node count:$node_count_N!\n" if $node_count_N != $node_seq_count; 
+
+open FA,"<$ARGV[3]" or die "fa $!\n"; # fasta file of last phylogeny construct step
+while (<FA>){
+    chomp;
+    my $name = $_;
+    $name =~ s/^>//;
+    #print "fa:$name\n";
+    my $seq = <FA>;
+    chomp $seq;
+    #if ($name =~ /tb.ancestor/){
+    #    $node_sequence{"Node0"} = $seq;
+    #}
+    #else{
+    $node_sequence{$name} = $seq;
+    #}
+}
+close FA;
+
+
+open LOC,"<$ARGV[1]" or die "$!\n";
+my @locus;
+while(<LOC>){
+    chomp;
+    my @array = split;
+    push @locus, $array[0];
+}
+close LOC;
+
+for (keys %hash_descendant){
+    my $descendant = $_;
+    if (!exists $node_sequence{$descendant}){
+        $node_sequence{$descendant} = $node_sequence{$hash_descendant{$descendant}};    
+    }
+}
+
+
+my (%node_specifical_sequence, %base_with_multiple_node,%node_include_base_with_multiple_node);
+for (keys %ancestor_descendant){
+    my $ancestor_node = $_;
+    my $ancestor_seq;
+    if (exists $node_sequence{$ancestor_node}){
+        $ancestor_seq = $node_sequence{$ancestor_node};
+    } else{
+        die "$ancestor_node:ancestor node not found!\n";
+    }
+    for (@{$ancestor_descendant{$ancestor_node}}){
+        my $descendant_node = $_;
+        my $descendant_seq = (exists $node_sequence{$descendant_node}) ? $node_sequence{$descendant_node} : $ancestor_seq;
+        my $seq_length = length $descendant_seq;
+        my $anc_seq_length = length $ancestor_seq;
+        print "$descendant_node--\t$anc_seq_length\t$seq_length\t$#locus\n";
+        die "$descendant_node:site number do not equal sequence length!\n" if ($seq_length != $#locus + 1);
+        my $array_number = $seq_length - 1;
+        for (0..$array_number){
+            my $i = $_;
+            my $ancestor_base = substr($ancestor_seq, $i, 1);
+            my $descendant_base = substr($descendant_seq, $i, 1);
+            if (($ancestor_base ne $descendant_base) and ($descendant_base !~
+                /[N?-]/)){
+                my $site = $locus[$i];
+                push @{$base_with_multiple_node{"$site"."_$descendant_base"}}, $descendant_node;    
+                ${$node_specifical_sequence{$descendant_node}}{$site} = $descendant_base;    
+            }
         }
-        elsif ($ch eq ')') {
-            # First, flush any buffered leaf (the last child before this closing paren)
-            if ($buf ne '') {
-                my $label = $buf;
-                $label =~ s/:\S+$//;
-                $label =~ s/^\s+|\s+$//g;
-                if ($label ne '') {
-                    $parent_of{$label} = $cur_parent if defined $cur_parent;
-                    push @{ $children{$cur_parent} }, $label if defined $cur_parent;
-                }
-                $buf = '';
-            }
-            # End of children list; what follows is the internal node label
-            $pos++;
-            # read label + optional branch length
-            my $label = '';
-            while ($pos < length($nwk) && substr($nwk,$pos,1) !~ /[,);(]/) {
-                $label .= substr($nwk,$pos,1);
-                $pos++;
-            }
-            $label =~ s/:\S+$//;
-            $label =~ s/^\s+|\s+$//g;
-            $node_counter++ unless $label;
-            my $iname = $label || "Node$node_counter";
-            my $par = pop @stack;
-            $parent_of{$iname} = $par if defined $par;
-            push @{ $children{$par} }, $iname if defined $par;
-            $cur_parent = $iname;
-            $buf = '';
-        }
-        elsif ($ch eq ',') {
-            # Finish current leaf/buffer
-            if ($buf ne '') {
-                my $label = $buf;
-                $label =~ s/:\S+$//;
-                $label =~ s/^\s+|\s+$//g;
-                if ($label ne '') {
-                    $parent_of{$label} = $cur_parent if defined $cur_parent;
-                    push @{ $children{$cur_parent} }, $label if defined $cur_parent;
-                }
-            }
-            $buf = '';
-            $pos++;
+    }
+}
+
+my $base_with_multiple_node_count = 0;
+open HOMO, ">$ARGV[5]" or die "$!\n";
+print HOMO "homoplasy bases:\n";
+for (keys %base_with_multiple_node){
+    my $key = $_;
+    my $j = @{$base_with_multiple_node{$key}};
+    if ($j>1){
+        $node_include_base_with_multiple_node{$key} = 1;
+        $base_with_multiple_node_count += $j - 1;
+        print HOMO "$key\t$j\t";
+        map {print HOMO "$_\t"} @{$base_with_multiple_node{$key}};
+        print HOMO "\n";
+    }
+}
+close HOMO;
+
+my $base_with_multiple_node_count_N = scalar keys %node_include_base_with_multiple_node;
+print "base with multiple node:$base_with_multiple_node_count_N\n";
+open DB,">$ARGV[4]" or die "$!\n";
+
+for (keys %hash_all){
+    my $pre_node = $_;  
+    #my $aft_node = (exists $strain_node{$pre_node}) ? $strain_node{$pre_node} : $pre_node;
+    my @array_pre_node = ();
+    @array_pre_node = &Minlevel ($pre_node, %hash_descendant);
+    if (@array_pre_node){
+        my @reverse_array_pre_node =reverse @array_pre_node;
+        pop @reverse_array_pre_node;
+        my $rapn_count = @reverse_array_pre_node;
+        print DB ">$pre_node\n";
+        if (exists $node_specifical_sequence{$pre_node}){
+            for (sort {$a<=>$b} keys %{$node_specifical_sequence{$pre_node}}){
+                print DB "$_ ";
+            }    
+            print DB "\n";
         }
         else {
-            $buf .= $ch;
-            $pos++;
+            print DB "no site\n";    
+        }
+        if (exists $hash_descendant{$pre_node}){
+            print DB "$hash_descendant{$pre_node}\n";
+        }
+        else {
+            print DB "wired\n";    
+        }
+        map {print DB "$_-"} @reverse_array_pre_node;
+        print DB "\n";
+        print DB "$rapn_count\n";
+        if (exists $node_specifical_sequence{$pre_node}){
+            for (sort {$a<=>$b} keys %{$node_specifical_sequence{$pre_node}}){
+                print DB "${$node_specifical_sequence{$pre_node}}{$_}";
+            }
+            print DB "\n";
+        }
+        else {
+            print DB "no base type\n";    
         }
     }
-    # Handle remaining buffer (root label or lone leaf)
-    if ($buf ne '') {
-        my $label = $buf;
-        $label =~ s/:\S+$//;
-        $label =~ s/^\s+|\s+$//g;
-        if ($label ne '') {
-            $parent_of{$label} = $cur_parent if defined $cur_parent;
-            push @{ $children{$cur_parent} }, $label if defined $cur_parent;
-        }
+    else {
+        print DB ">$pre_node\n";
+        print DB "no site\n\n";
+        print DB "root\n";
+        print DB "-\n";
+        print DB "0\n";
+        print DB "no base type\n";
+    }
+}
+my @node_seq;
+sub Minlevel {
+    my ($temp_node,%hash_temp) = @_;
+    push @node_seq, $temp_node;
+    if (exists $hash_temp{$temp_node}){
+        my $string = $hash_temp{$temp_node};
+        delete $hash_temp{$temp_node};
+        &Minlevel ($string, %hash_temp);
+    }
+    else {
+        my @node_seq_out = @node_seq;
+        undef @node_seq;
+        return @node_seq_out;
     }
 }
 
-# Collect all node names
-my %all_nodes;
-$all_nodes{$_}++ for keys %parent_of;
-$all_nodes{$_}++ for keys %children;
-
-# Find root (no parent)
-my ($root) = grep { !defined $parent_of{$_} || $parent_of{$_} eq '' } keys %all_nodes;
-
-# Compute depth from root
-my %depth;
-{
-    my @queue = ($root);
-    $depth{$root} = 0;
-    while (@queue) {
-        my $n = shift @queue;
-        for my $ch (@{ $children{$n} // [] }) {
-            $depth{$ch} = ($depth{$n} // 0) + 1;
-            push @queue, $ch;
-        }
-    }
-}
-
-# --------------------------------------------------------------------------
-# Read IQ-TREE state file → internal node states {node => [base_at_site1, ...]}
-# --------------------------------------------------------------------------
-my %node_states;  # {node_name => [base1, base2, ...]}  (1-indexed sites → 0-indexed array)
-{
-    open my $fh, '<', $state_file or die "Cannot open $state_file: $!";
-    while (<$fh>) {
-        next if /^#/ || /^Node\tSite/;
-        chomp;
-        my @cols = split /\t/, $_;
-        next unless @cols >= 3;
-        my ($node, $site, $state) = @cols[0,1,2];
-        next unless $site =~ /^\d+$/ && $node =~ /\S/;
-        $node_states{$node}[$site - 1] = uc($state);
-    }
-    close $fh;
-}
-
-# Also add leaf states from the alignment
-for my $leaf (keys %leaf_seq) {
-    my $seq = $leaf_seq{$leaf};
-    for my $i (0 .. length($seq) - 1) {
-        $node_states{$leaf}[$i] = uc(substr($seq, $i, 1));
-    }
-}
-
-# --------------------------------------------------------------------------
-# Extract per-branch mutations
-# --------------------------------------------------------------------------
-# Collect all mutations: {mut_str => [node_names]}  for homoplasy detection
-my %mut_nodes;
-
-# Output lines for .db file
-my @db_lines;
-
-for my $node (sort keys %all_nodes) {
-    my $par = $parent_of{$node};
-    next unless defined $par && $par ne '';
-
-    my $node_seq = $node_states{$node}   // [];
-    my $par_seq  = $node_states{$par}    // [];
-
-    my $d = $depth{$node} // 0;
-
-    for my $i (0 .. $n_sites - 1) {
-        my $nb = $node_seq->[$i] // 'N';
-        my $pb = $par_seq->[$i]  // 'N';
-        next if $nb eq 'N' || $pb eq 'N' || $nb eq '?' || $pb eq '?';
-        next if $nb eq $pb;
-
-        my $gpos  = $positions[$i];
-        my $mut   = "${gpos}_${nb}";
-        push @db_lines, "$node\t$d\t$mut\tdb";
-        push @{ $mut_nodes{$mut} }, $node;
-    }
-}
-
-# --------------------------------------------------------------------------
-# Write .db file
-# --------------------------------------------------------------------------
-open my $fh_db, '>', $out_db or die "Cannot write $out_db: $!";
-print $fh_db "$_\n" for @db_lines;
-close $fh_db;
-
-# --------------------------------------------------------------------------
-# Write homoplasy file (mutations found on >=2 independent branches)
-# --------------------------------------------------------------------------
-open my $fh_homo, '>', $out_homo or die "Cannot write $out_homo: $!";
-for my $mut (sort keys %mut_nodes) {
-    my @nodes = @{ $mut_nodes{$mut} };
-    if (@nodes >= 2) {
-        print $fh_homo join("\t", $mut, scalar(@nodes), join(',', @nodes)), "\n";
-    }
-}
-close $fh_homo;
