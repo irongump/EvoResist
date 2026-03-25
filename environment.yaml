@@ -1,0 +1,40 @@
+name: evoresist
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  # Workflow manager
+  - snakemake>=7.0
+  # Sequence alignment
+  - bwa>=0.7.17
+  # SAM/BAM manipulation
+  - samtools>=1.13
+  # Quality trimming
+  - sickle-trim>=1.33
+  # SRA data access (provides fastq-dump)
+  - sra-tools>=3.0
+  # Phylogenetic tree inference
+  - iqtree>=2.2
+  # Parallelisation
+  - parallel>=20210722
+  # Perl runtime (for annotation scripts)
+  - perl>=5.26
+  # Java runtime (for VarScan)
+  - openjdk>=11
+  # R runtime and packages
+  - r-base>=4.0
+  - r-dplyr
+  - r-tidyr
+  - r-stringr
+  - r-purrr
+  - r-ggplot2
+  - r-ggpubr
+  - r-scales
+  - r-data.table
+  # Python scientific stack
+  - python>=3.8
+  - numpy
+  - pandas
+  - biopython
+  - tqdm

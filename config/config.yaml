@@ -3,6 +3,29 @@
 # ==============================================================================
 # Adjust paths and parameters below to match your environment.
 
+# -- Output directory ---------------------------------------------------------
+# Base directory for all pipeline outputs.
+# Recommended: use a single-level relative path (e.g. "output", "results")
+# so that scripts using relative back-references (../../) work correctly.
+outdir: "output"
+
+# -- Pipeline control ---------------------------------------------------------
+# Stop the pipeline after a specific step. Valid values:
+#   step1 / snp_calling        - SNP calling from FASTQ or SRA files
+#   step2 / build_tree         - Phylogenetic tree building with IQ-TREE
+#   step3 / branch_mutations   - Branch mutation extraction per lineage
+#   step4 / ancestor_mutations - Ancestor mutation extraction (global)
+#   step5 / merge_annotations  - Merge annotations and count convergent mutations
+#   step6 / simulation / all   - GTR simulation for null distribution (full run)
+stop_at: "all"
+
+# -- Input data type ----------------------------------------------------------
+# Specify the format of the raw input data for SNP calling. Valid values:
+#   auto   - Auto-detect: use FASTQ files if present, otherwise fall back to SRA
+#   fastq  - FASTQ files are already in <outdir>/fastq/; SRA download is skipped
+#   sra    - Input is SRA format; files are converted to FASTQ before processing
+input_type: "auto"
+
 # -- Reference data -----------------------------------------------------------
 # Path to the ancestral reference genome FASTA
 reference: "data/tb.ancestor.fasta"
@@ -13,7 +36,7 @@ ancestor_concat_fasta: "data/tb.ancestor.concatenated.fasta"
 # Directory containing per-lineage sample ID files (e.g., L1.txt, L2.txt, ...)
 strain_ids_dir: "data/strain_ids"
 
-# -- SRA data (only needed when starting from SRA files) ----------------------
+# -- SRA data (only needed when input_type is "sra" or "auto") ----------------
 sra_dir: "data/sra"
 
 # -- Filter / annotation data ------------------------------------------------

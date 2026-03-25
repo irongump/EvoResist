@@ -1,26 +1,46 @@
 """
-EvoResist Snakemake Pipeline (v1.0)
+EvoResist Snakemake Pipeline (v2.0)
 ====================================
 Leveraging Convergent Evolution to Prioritize Antibiotic Resistance
 Mutations in Mycobacterium tuberculosis.
 
 Pipeline Steps:
-  1. SNP calling from FASTQ files (per sample)
+  1. SNP calling from FASTQ or SRA files (per sample)
   2. Phylogenetic tree building with IQ-TREE (per lineage)
   3. Branch mutation extraction from tree nodes (per lineage)
   4. Ancestor mutation extraction (global)
   5. Merge annotations and count convergent mutations (global)
   6. GTR simulation for null distribution (global)
-  7. FDR analysis and visualization (global)
+
+Key configuration options (config/config.yaml):
+  outdir      - Base output directory (default: "output").
+                Recommended: single-level relative path so that shell scripts
+                using ../../ back-references resolve correctly.
+  stop_at     - Stop after a specific step; valid values:
+                  step1/snp_calling, step2/build_tree,
+                  step3/branch_mutations, step4/ancestor_mutations,
+                  step5/merge_annotations, step6/simulation/all
+  input_type  - Input data format: auto (default), fastq, or sra
 
 Usage:
   snakemake --cores <N> --configfile config/config.yaml
   snakemake --cores <N> --configfile config/config.yaml --cluster "sbatch ..."
+  # Run only up to SNP calling:
+  snakemake --cores <N> --configfile config/config.yaml --config stop_at=step1
+  # Use a custom output directory:
+  snakemake --cores <N> --configfile config/config.yaml --config outdir=results
 """
 
 import os
 
 configfile: "config/config.yaml"
+
+# =============================================================================
+# Global settings derived from config
+# =============================================================================
+OUTDIR     = config.get("outdir", "output")
+STOP_AT    = config.get("stop_at", "all")
+INPUT_TYPE = config.get("input_type", "auto")
 
 # =============================================================================
 # Discover lineages and samples from strain ID files
@@ -40,12 +60,43 @@ for _lin in LINEAGES:
 ALL_SAMPLES = sorted(set(ALL_SAMPLES))
 
 # =============================================================================
+# Map each stop_at value to its corresponding output files
+# =============================================================================
+_SIMULATION_OUTPUTS = [
+    f"{OUTDIR}/simulation/simulated_mutations_raw_GTR_Gamma.csv",
+    f"{OUTDIR}/simulation/null_mutation_df_GTR.csv",
+    f"{OUTDIR}/simulation/expected_null_distribution_GTR_Gamma.csv",
+]
+
+_STOP_STEP_MAP = {
+    "step1":              expand(f"{OUTDIR}/snv/{{sample}}.snp", sample=ALL_SAMPLES),
+    "snp_calling":        expand(f"{OUTDIR}/snv/{{sample}}.snp", sample=ALL_SAMPLES),
+    "step2":              expand(f"{OUTDIR}/lineage_tree/{{lineage}}_btp.treefile", lineage=LINEAGES),
+    "build_tree":         expand(f"{OUTDIR}/lineage_tree/{{lineage}}_btp.treefile", lineage=LINEAGES),
+    "step3":              expand(f"{OUTDIR}/lineage_ann/{{lineage}}.ann", lineage=LINEAGES),
+    "branch_mutations":   expand(f"{OUTDIR}/lineage_ann/{{lineage}}.ann", lineage=LINEAGES),
+    "step4":              [f"{OUTDIR}/lineage_ann/ancestor.ann"],
+    "ancestor_mutations": [f"{OUTDIR}/lineage_ann/ancestor.ann"],
+    "step5":              [f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt"],
+    "merge_annotations":  [f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt"],
+    "step6":              _SIMULATION_OUTPUTS,
+    "simulation":         _SIMULATION_OUTPUTS,
+    "all":                _SIMULATION_OUTPUTS,
+}
+
+if STOP_AT not in _STOP_STEP_MAP:
+    raise ValueError(
+        f"Invalid stop_at value '{STOP_AT}'. "
+        f"Valid options: {sorted(set(_STOP_STEP_MAP.keys()))}"
+    )
+
+FINAL_TARGETS = _STOP_STEP_MAP[STOP_AT]
+
+# =============================================================================
 # Final target
 # =============================================================================
 rule all:
-    input:
-        "output/simulation/final_convergent_mutations_statistics.csv",
-        "output/simulation/Figure_Null_Distribution_Barplot.pdf",
+    input: FINAL_TARGETS
 
 
 # =============================================================================
@@ -60,18 +111,19 @@ rule snp_calling:
         ref_fai=config["reference"] + ".fai",
         low_ebr=config["low_ebr_file"],
     output:
-        snp="output/snv/{sample}.snp",
-        cfa="output/cfa/{sample}.cfa",
-        forup="output/forup/{sample}.forup",
+        snp=f"{OUTDIR}/snv/{{sample}}.snp",
+        cfa=f"{OUTDIR}/cfa/{{sample}}.cfa",
+        forup=f"{OUTDIR}/forup/{{sample}}.forup",
     params:
         sample="{sample}",
-        fq_dir="output/fastq",
-        bam_dir="output/bam",
-        snv_dir="output/snv",
-        cfa_dir="output/cfa",
-        forup_dir="output/forup",
+        fq_dir=f"{OUTDIR}/fastq",
+        bam_dir=f"{OUTDIR}/bam",
+        snv_dir=f"{OUTDIR}/snv",
+        cfa_dir=f"{OUTDIR}/cfa",
+        forup_dir=f"{OUTDIR}/forup",
         varscan=config["varscan_jar"],
         sra_dir=config["sra_dir"],
+        input_type=INPUT_TYPE,
     threads: config["threads_per_sample"]
     resources:
         mem_mb=12000,
@@ -89,6 +141,7 @@ rule snp_calling:
         sra_dir={params.sra_dir}
         low_ebr={input.low_ebr}
         nthreads={threads}
+        input_type={params.input_type}
 
         mkdir -p "$fq_dir" "$bam_dir" "$snv" "$cfa_dir" "$forup_dir"
 
@@ -97,8 +150,9 @@ rule snp_calling:
         fq2="${{fq_dir}}/${{sample}}_2.fastq.gz"
         sfq="${{fq_dir}}/${{sample}}.fastq.gz"
 
-        # Extract from SRA if FASTQ files are not present
-        if [ ! -f "$fq1" ] && [ ! -f "$sfq" ]; then
+        # -- Resolve input based on input_type --
+        if [ "$input_type" = "sra" ]; then
+            # SRA mode: convert SRA to FASTQ unconditionally
             if [ -f "${{sra_dir}}/${{sample}}/${{sample}}.sra" ]; then
                 fastq-dump --split-3 --gzip -O "$fq_dir" \
                     "${{sra_dir}}/${{sample}}/${{sample}}.sra"
@@ -106,8 +160,28 @@ rule snp_calling:
                 fastq-dump --split-3 --gzip -O "$fq_dir" \
                     "${{sra_dir}}/${{sample}}/${{sample}}.sralite"
             else
-                echo "Error: No FASTQ or SRA file found for $sample" >&2
+                echo "Error: No SRA file found for $sample in $sra_dir" >&2
                 exit 1
+            fi
+        elif [ "$input_type" = "fastq" ]; then
+            # FASTQ mode: expect files to already exist
+            if [ ! -f "$fq1" ] && [ ! -f "$sfq" ]; then
+                echo "Error: No FASTQ file found for $sample. Expected $fq1 or $sfq" >&2
+                exit 1
+            fi
+        else
+            # Auto mode: use FASTQ if present, otherwise fall back to SRA
+            if [ ! -f "$fq1" ] && [ ! -f "$sfq" ]; then
+                if [ -f "${{sra_dir}}/${{sample}}/${{sample}}.sra" ]; then
+                    fastq-dump --split-3 --gzip -O "$fq_dir" \
+                        "${{sra_dir}}/${{sample}}/${{sample}}.sra"
+                elif [ -f "${{sra_dir}}/${{sample}}/${{sample}}.sralite" ]; then
+                    fastq-dump --split-3 --gzip -O "$fq_dir" \
+                        "${{sra_dir}}/${{sample}}/${{sample}}.sralite"
+                else
+                    echo "Error: No FASTQ or SRA file found for $sample" >&2
+                    exit 1
+                fi
             fi
         fi
 
@@ -221,21 +295,21 @@ rule snp_calling:
 
 rule build_tree:
     input:
-        snps=lambda wc: expand("output/snv/{sample}.snp",
+        snps=lambda wc: expand(f"{OUTDIR}/snv/{{sample}}.snp",
                                sample=get_samples(wc.lineage)),
-        cfas=lambda wc: expand("output/cfa/{sample}.cfa",
+        cfas=lambda wc: expand(f"{OUTDIR}/cfa/{{sample}}.cfa",
                                sample=get_samples(wc.lineage)),
         strain_list=os.path.join(config["strain_ids_dir"], "{lineage}.txt"),
         anc_cfa=config["ancestor_concat_fasta"],
         ref=config["reference"],
     output:
-        tree="output/lineage_tree/{lineage}_btp.treefile",
-        state="output/lineage_tree/{lineage}_btp.state",
+        tree=f"{OUTDIR}/lineage_tree/{{lineage}}_btp.treefile",
+        state=f"{OUTDIR}/lineage_tree/{{lineage}}_btp.state",
     params:
         lineage="{lineage}",
-        tree_dir="output/lineage_tree",
-        cfa_dir="output/cfa",
-        snv_dir="output/snv",
+        tree_dir=f"{OUTDIR}/lineage_tree",
+        cfa_dir=f"{OUTDIR}/cfa",
+        snv_dir=f"{OUTDIR}/snv",
     threads: config["threads_tree"]
     resources:
         mem_mb=200000,
@@ -311,17 +385,17 @@ rule build_tree:
 
 rule branch_mutations:
     input:
-        tree="output/lineage_tree/{lineage}_btp.treefile",
-        state="output/lineage_tree/{lineage}_btp.state",
+        tree=f"{OUTDIR}/lineage_tree/{{lineage}}_btp.treefile",
+        state=f"{OUTDIR}/lineage_tree/{{lineage}}_btp.state",
         low_ebr=config["low_ebr_file"],
         ref=config["reference"],
     output:
-        ann="output/lineage_ann/{lineage}.ann",
+        ann=f"{OUTDIR}/lineage_ann/{{lineage}}.ann",
     params:
         lineage="{lineage}",
-        tree_dir="output/lineage_tree",
-        ann_dir="output/lineage_ann",
-        cfa_dir="output/lineage_cfa",
+        tree_dir=f"{OUTDIR}/lineage_tree",
+        ann_dir=f"{OUTDIR}/lineage_ann",
+        cfa_dir=f"{OUTDIR}/lineage_cfa",
     threads: config["threads_annotation"]
     resources:
         mem_mb=20000,
@@ -400,9 +474,10 @@ rule ancestor_mutations:
         low_ebr=config["low_ebr_file"],
         ref=config["reference"],
     output:
-        ann="output/lineage_ann/ancestor.ann",
+        ann=f"{OUTDIR}/lineage_ann/ancestor.ann",
     params:
-        ann_dir="output/lineage_ann",
+        ann_dir=f"{OUTDIR}/lineage_ann",
+        tmp_dir=f"{OUTDIR}/ancestor_tmp",
     threads: config["threads_annotation"]
     resources:
         mem_mb=20000,
@@ -410,15 +485,16 @@ rule ancestor_mutations:
         r"""
         set -euo pipefail
         ann_dir={params.ann_dir}
+        tmp_dir={params.tmp_dir}
         low_ebr={input.low_ebr}
         mkdir -p "$ann_dir"
 
         # Generate per-node SNP files for ancestor nodes
         python scripts/getrefbase_per_node.py \
-            {input.mutation_file} output/ancestor_tmp {input.ref}
+            {input.mutation_file} "$tmp_dir" {input.ref}
 
         # Annotate each node's mutations in parallel
-        find "output/ancestor_tmp" -maxdepth 1 -name "*snp" -print0 | \
+        find "$tmp_dir" -maxdepth 1 -name "*snp" -print0 | \
             parallel -0 -j {threads} '
                 python scripts/remove_low_ebr.py "'"$low_ebr"'" "{{}}" \
                     > "{{= s/\.snp$// =}}_rle.snp" &&
@@ -428,10 +504,10 @@ rule ancestor_mutations:
                 sed -i "/^$/d" "{{= s/\.snp$// =}}.ann"
             '
 
-        cat output/ancestor_tmp/*.ann > "$ann_dir/ancestor.ann"
+        cat "$tmp_dir"/*.ann > "$ann_dir/ancestor.ann"
 
         # Clean up
-        rm -rf output/ancestor_tmp
+        rm -rf "$tmp_dir"
         """
 
 
@@ -442,11 +518,11 @@ rule ancestor_mutations:
 
 rule merge_annotations:
     input:
-        lineage_anns=expand("output/lineage_ann/{lineage}.ann",
+        lineage_anns=expand(f"{OUTDIR}/lineage_ann/{{lineage}}.ann",
                             lineage=LINEAGES),
-        ancestor_ann="output/lineage_ann/ancestor.ann",
+        ancestor_ann=f"{OUTDIR}/lineage_ann/ancestor.ann",
     output:
-        all_ann="output/lineage_ann/all_ann.txt",
+        all_ann=f"{OUTDIR}/lineage_ann/all_ann.txt",
     shell:
         r"""
         cat {input.lineage_anns} > {output.all_ann}
@@ -456,27 +532,33 @@ rule merge_annotations:
 
 rule stat_convergent:
     input:
-        all_ann="output/lineage_ann/all_ann.txt",
+        all_ann=f"{OUTDIR}/lineage_ann/all_ann.txt",
     output:
-        convergent="output/lineage_ann/all_ann_convergent.txt",
+        convergent=f"{OUTDIR}/lineage_ann/all_ann_convergent.txt",
+    params:
+        ann_dir=f"{OUTDIR}/lineage_ann",
     shell:
         r"""
-        cd output/lineage_ann
+        ann_dir={params.ann_dir}
+        cd "$ann_dir"
         Rscript ../../scripts/stat_convergent.R
         """
 
 
 rule filter_convergent:
     input:
-        convergent="output/lineage_ann/all_ann_convergent.txt",
+        convergent=f"{OUTDIR}/lineage_ann/all_ann_convergent.txt",
         snp_freq=config["snp_freq_file"],
         repeat_region=config["repeat_region_file"],
         mobile_element=config["mobile_element_file"],
     output:
-        filtered="output/lineage_ann/all_ann_convergent_flt.txt",
+        filtered=f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt",
+    params:
+        ann_dir=f"{OUTDIR}/lineage_ann",
     shell:
         r"""
-        cd output/lineage_ann
+        ann_dir={params.ann_dir}
+        cd "$ann_dir"
         Rscript ../../scripts/filter_low_freq_pos.R \
             all_ann_convergent.txt all_ann_convergent_flt.txt
         """
@@ -490,53 +572,17 @@ rule filter_convergent:
 
 rule simulation:
     input:
-        filtered="output/lineage_ann/all_ann_convergent_flt.txt",
+        filtered=f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt",
         ref=config["reference"],
     output:
-        raw_sim="output/simulation/simulated_mutations_raw_GTR_Gamma.csv",
-        null_dist="output/simulation/null_mutation_df_GTR.csv",
-        expected="output/simulation/expected_null_distribution_GTR_Gamma.csv",
+        raw_sim=f"{OUTDIR}/simulation/simulated_mutations_raw_GTR_Gamma.csv",
+        null_dist=f"{OUTDIR}/simulation/null_mutation_df_GTR.csv",
+        expected=f"{OUTDIR}/simulation/expected_null_distribution_GTR_Gamma.csv",
     params:
-        sim_dir="output/simulation",
+        sim_dir=f"{OUTDIR}/simulation",
     shell:
         r"""
         mkdir -p {params.sim_dir}
         cd {params.sim_dir}
         python ../../scripts/simulation_GTR_gamma.py
-        """
-
-
-# =============================================================================
-# Step 7: FDR Analysis and Visualization
-# =============================================================================
-# Calculates empirical p-values and FDR for convergent mutations, and
-# generates publication-ready plots.
-
-rule fdr_analysis:
-    input:
-        filtered="output/lineage_ann/all_ann_convergent_flt.txt",
-        raw_sim="output/simulation/simulated_mutations_raw_GTR_Gamma.csv",
-    output:
-        stats="output/simulation/final_convergent_mutations_statistics.csv",
-    params:
-        sim_dir="output/simulation",
-    shell:
-        r"""
-        cd {params.sim_dir}
-        Rscript ../../scripts/fdr4simulation.R
-        """
-
-
-rule plot_results:
-    input:
-        expected="output/simulation/expected_null_distribution_GTR_Gamma.csv",
-    output:
-        pdf="output/simulation/Figure_Null_Distribution_Barplot.pdf",
-        png="output/simulation/Figure_Null_Distribution_Barplot.png",
-    params:
-        sim_dir="output/simulation",
-    shell:
-        r"""
-        cd {params.sim_dir}
-        Rscript ../../scripts/plot_GTR_simulation.R
         """
