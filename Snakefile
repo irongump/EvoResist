@@ -24,6 +24,11 @@ Key configuration options (config/config.yaml):
                 When set to "fastq", fastq_dir must also be set.
   fastq_dir   - Directory with pre-existing per-sample FASTQ files.
                 Required when input_type is "fastq"; ignored otherwise.
+  lineage     - Process only the specified lineage or list of lineages
+                (e.g. "Lineage1.1" or ["Lineage1.1", "Lineage2.3.4"]).
+                Each value must correspond to a file named
+                <strain_ids_dir>/<lineage>_strain.txt.
+                When omitted all lineages in strain_ids_dir are processed.
 
 Usage:
   snakemake --cores <N> --configfile config/config.yaml
@@ -35,6 +40,7 @@ Usage:
 """
 
 import os
+import glob as _glob
 
 configfile: "config/config.yaml"
 
@@ -62,19 +68,78 @@ else:
 # =============================================================================
 # Discover lineages and samples from strain ID files
 # =============================================================================
-LINEAGES, = glob_wildcards(os.path.join(config["strain_ids_dir"], "{lineage}.txt"))
-LINEAGES = sorted(LINEAGES)
+STRAIN_IDS_DIR = config["strain_ids_dir"]
+
+# All available lineages are derived from files named <lineage>_strain.txt
+_all_lineage_names, = glob_wildcards(
+    os.path.join(STRAIN_IDS_DIR, "{lineage}_strain.txt")
+)
+_ALL_AVAILABLE_LINEAGES = sorted(_all_lineage_names)
+
+# If the user specified a lineage (or list of lineages), restrict to those.
+_lineage_cfg = config.get("lineage", None)
+if _lineage_cfg is not None:
+    # Accept a single string or a list
+    if isinstance(_lineage_cfg, str):
+        _requested = [_lineage_cfg]
+    else:
+        _requested = list(_lineage_cfg)
+
+    # Validate each requested lineage against the available strain files
+    _missing = [
+        lin for lin in _requested
+        if not os.path.isfile(os.path.join(STRAIN_IDS_DIR, f"{lin}_strain.txt"))
+    ]
+    if _missing:
+        raise ValueError(
+            f"No strain file found for lineage(s): {_missing}. "
+            f"Expected files: "
+            + ", ".join(f"{STRAIN_IDS_DIR}/{m}_strain.txt" for m in _missing)
+        )
+    LINEAGES = sorted(_requested)
+else:
+    LINEAGES = _ALL_AVAILABLE_LINEAGES
+
 
 def get_samples(lineage):
     """Read sample IDs from a lineage strain list file."""
-    filepath = os.path.join(config["strain_ids_dir"], f"{lineage}.txt")
+    filepath = os.path.join(STRAIN_IDS_DIR, f"{lineage}_strain.txt")
     with open(filepath) as f:
         return [line.strip() for line in f if line.strip()]
+
 
 ALL_SAMPLES = []
 for _lin in LINEAGES:
     ALL_SAMPLES.extend(get_samples(_lin))
 ALL_SAMPLES = sorted(set(ALL_SAMPLES))
+
+# For fastq mode, filter ALL_SAMPLES to those that actually have a FASTQ file
+# present in FQ_DIR, and warn about any that are missing.
+if INPUT_TYPE == "fastq":
+    _found = []
+    _missing_fq = []
+    for _s in ALL_SAMPLES:
+        _pe1  = os.path.join(FQ_DIR, f"{_s}_1.fastq.gz")
+        _pe2  = os.path.join(FQ_DIR, f"{_s}_2.fastq.gz")
+        _se   = os.path.join(FQ_DIR, f"{_s}.fastq.gz")
+        if os.path.isfile(_pe1) or os.path.isfile(_se):
+            _found.append(_s)
+        else:
+            _missing_fq.append(_s)
+    if _missing_fq:
+        import sys
+        print(
+            f"WARNING: {len(_missing_fq)} sample(s) listed in strain files "
+            f"have no matching FASTQ in {FQ_DIR!r} and will be skipped:\n"
+            + "\n".join(f"  {s}" for s in _missing_fq),
+            file=sys.stderr,
+        )
+    if not _found:
+        raise ValueError(
+            f"No FASTQ files found in {FQ_DIR!r} for any of the requested "
+            f"samples. Check fastq_dir and the strain ID files."
+        )
+    ALL_SAMPLES = _found
 
 # =============================================================================
 # Map each stop_at value to its corresponding output files
@@ -320,7 +385,7 @@ rule build_tree:
                                sample=get_samples(wc.lineage)),
         cfas=lambda wc: expand(f"{OUTDIR}/cfa/{{sample}}.cfa",
                                sample=get_samples(wc.lineage)),
-        strain_list=os.path.join(config["strain_ids_dir"], "{lineage}.txt"),
+        strain_list=os.path.join(config["strain_ids_dir"], "{lineage}_strain.txt"),
         anc_cfa=config["ancestor_concat_fasta"],
         ref=config["reference"],
     output:

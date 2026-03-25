@@ -42,8 +42,19 @@ reference: "data/tb.ancestor.fasta"
 ancestor_concat_fasta: "data/tb.ancestor.concatenated.fasta"
 
 # -- Sample information -------------------------------------------------------
-# Directory containing per-lineage sample ID files (e.g., L1.txt, L2.txt, ...)
+# Directory containing per-lineage sample ID files.
+# Each file must be named <lineage>_strain.txt (e.g., Lineage1.1_strain.txt).
 strain_ids_dir: "data/strain_ids"
+
+# Lineage filter (optional).
+# When set, only the specified lineage(s) are processed; all others are skipped.
+# Accepted formats:
+#   Single lineage:  lineage: "Lineage1.1"
+#   Multiple:        lineage: ["Lineage1.1", "Lineage2.3.4"]
+# The value must match the base name of a file in strain_ids_dir, i.e.
+# <strain_ids_dir>/<lineage>_strain.txt must exist.
+# When omitted or set to null, all lineages in strain_ids_dir are processed.
+# lineage: "Lineage1.1"
 
 # -- SRA data (only needed when input_type is "sra" or "auto") ----------------
 sra_dir: "data/sra"
