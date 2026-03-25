@@ -20,7 +20,10 @@ Key configuration options (config/config.yaml):
                   step1/snp_calling, step2/build_tree,
                   step3/branch_mutations, step4/ancestor_mutations,
                   step5/merge_annotations, step6/simulation/all
-  input_type  - Input data format: auto (default), fastq, or sra
+  input_type  - Input data format: auto (default), fastq, or sra.
+                When set to "fastq", fastq_dir must also be set.
+  fastq_dir   - Directory with pre-existing per-sample FASTQ files.
+                Required when input_type is "fastq"; ignored otherwise.
 
 Usage:
   snakemake --cores <N> --configfile config/config.yaml
@@ -41,6 +44,20 @@ configfile: "config/config.yaml"
 OUTDIR     = config.get("outdir", "output")
 STOP_AT    = config.get("stop_at", "all")
 INPUT_TYPE = config.get("input_type", "auto")
+
+# Resolve the directory where FASTQ files live.
+# - fastq mode: user must explicitly provide fastq_dir (their existing files)
+# - sra mode:   FASTQs are generated from SRA into <outdir>/fastq
+# - auto mode:  FASTQs are looked-for / generated in <outdir>/fastq
+if INPUT_TYPE == "fastq":
+    if "fastq_dir" not in config:
+        raise ValueError(
+            "config key 'fastq_dir' must be set when input_type is 'fastq'. "
+            "Set it to the directory that contains your per-sample FASTQ files."
+        )
+    FQ_DIR = config["fastq_dir"]
+else:
+    FQ_DIR = f"{OUTDIR}/fastq"
 
 # =============================================================================
 # Discover lineages and samples from strain ID files
@@ -116,7 +133,7 @@ rule snp_calling:
         forup=f"{OUTDIR}/forup/{{sample}}.forup",
     params:
         sample="{sample}",
-        fq_dir=f"{OUTDIR}/fastq",
+        fq_dir=FQ_DIR,
         bam_dir=f"{OUTDIR}/bam",
         snv_dir=f"{OUTDIR}/snv",
         cfa_dir=f"{OUTDIR}/cfa",
@@ -143,7 +160,11 @@ rule snp_calling:
         nthreads={threads}
         input_type={params.input_type}
 
-        mkdir -p "$fq_dir" "$bam_dir" "$snv" "$cfa_dir" "$forup_dir"
+        mkdir -p "$bam_dir" "$snv" "$cfa_dir" "$forup_dir"
+        # Only create fq_dir when it's an output location (sra / auto modes)
+        if [ "$input_type" != "fastq" ]; then
+            mkdir -p "$fq_dir"
+        fi
 
         # -- Locate FASTQ files --
         fq1="${{fq_dir}}/${{sample}}_1.fastq.gz"

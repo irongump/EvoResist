@@ -82,12 +82,13 @@ Edit `config/config.yaml` before running.  Key options:
 | `outdir` | `"output"` | Base directory for all pipeline outputs |
 | `stop_at` | `"all"` | Stop the pipeline at a specific step (see table above for valid step names) |
 | `input_type` | `"auto"` | Input data format: `auto`, `fastq`, or `sra` |
+| `fastq_dir` | *(none)* | **Required when `input_type: fastq`** — path to the directory containing pre-existing per-sample FASTQ files. Ignored for `sra` and `auto` modes. |
 
 `stop_at` accepts either the step number (`step1`–`step6`) or the rule name.  
 `input_type` values:
-- `auto` – use FASTQ if already present, otherwise convert from SRA
-- `fastq` – FASTQ files are already in `<outdir>/fastq/`; skip SRA download
-- `sra` – input is SRA format; convert before processing
+- `auto` – look for FASTQ files in `<outdir>/fastq/`; if absent, convert from SRA into the same directory
+- `fastq` – FASTQ files already exist at the path given by `fastq_dir` (required); SRA download is skipped
+- `sra` – input is SRA format; convert to FASTQ into `<outdir>/fastq/` before processing
 
 Options can also be overridden on the command line with `--config`:
 
@@ -100,6 +101,10 @@ snakemake --cores 8 --configfile config/config.yaml --config outdir=results
 
 # Start from SRA files:
 snakemake --cores 8 --configfile config/config.yaml --config input_type=sra
+
+# Start from existing FASTQ files in a custom directory:
+snakemake --cores 8 --configfile config/config.yaml \
+    --config input_type=fastq fastq_dir=/path/to/my/fastqs
 ```
 
 ---

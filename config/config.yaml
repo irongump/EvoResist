@@ -21,10 +21,19 @@ stop_at: "all"
 
 # -- Input data type ----------------------------------------------------------
 # Specify the format of the raw input data for SNP calling. Valid values:
-#   auto   - Auto-detect: use FASTQ files if present, otherwise fall back to SRA
-#   fastq  - FASTQ files are already in <outdir>/fastq/; SRA download is skipped
+#   auto   - Auto-detect: use FASTQ files if present in <outdir>/fastq/,
+#            otherwise fall back to SRA conversion
+#   fastq  - FASTQ files already exist; their location is given by fastq_dir
+#            (SRA download is skipped entirely)
 #   sra    - Input is SRA format; files are converted to FASTQ before processing
 input_type: "auto"
+
+# Directory containing per-sample FASTQ files.
+# Required when input_type is "fastq"; ignored for "sra" and "auto" modes
+# (in those modes FASTQs are placed in <outdir>/fastq/).
+# Naming convention: <sample>_1.fastq.gz / <sample>_2.fastq.gz (paired-end)
+#                 or <sample>.fastq.gz (single-end)
+# fastq_dir: "data/fastq"
 
 # -- Reference data -----------------------------------------------------------
 # Path to the ancestral reference genome FASTA
