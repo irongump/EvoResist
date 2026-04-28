@@ -83,11 +83,12 @@ Edit `config/config.yaml` before running.  Key options:
 | `stop_at` | `"all"` | Stop the pipeline at a specific step (see table above for valid step names) |
 | `input_type` | `"auto"` | Input data format: `auto`, `fastq`, or `sra` |
 | `fastq_dir` | *(none)* | **Required when `input_type: fastq`** — path to the directory containing pre-existing per-sample FASTQ files. Ignored for `sra` and `auto` modes. |
+| `lineage` | *(none — all)* | Process only the named lineage or list of lineages (e.g. `"Lineage1.1"` or `["Lineage1.1","Lineage2.3.4"]`). Each must correspond to a `<strain_ids_dir>/<lineage>_strain.txt` file. When omitted, all lineages are processed. |
 
 `stop_at` accepts either the step number (`step1`–`step6`) or the rule name.  
 `input_type` values:
 - `auto` – look for FASTQ files in `<outdir>/fastq/`; if absent, convert from SRA into the same directory
-- `fastq` – FASTQ files already exist at the path given by `fastq_dir` (required); SRA download is skipped
+- `fastq` – FASTQ files already exist at the path given by `fastq_dir` (required); only samples whose FASTQ files are present in `fastq_dir` are processed (others are skipped with a warning)
 - `sra` – input is SRA format; convert to FASTQ into `<outdir>/fastq/` before processing
 
 Options can also be overridden on the command line with `--config`:
@@ -105,6 +106,13 @@ snakemake --cores 8 --configfile config/config.yaml --config input_type=sra
 # Start from existing FASTQ files in a custom directory:
 snakemake --cores 8 --configfile config/config.yaml \
     --config input_type=fastq fastq_dir=/path/to/my/fastqs
+
+# Process only Lineage1.1 from existing FASTQ files:
+snakemake --cores 8 --configfile config/config.yaml \
+    --config input_type=fastq fastq_dir=/path/to/my/fastqs lineage=Lineage1.1
+
+# Process Lineage1.1 and Lineage2.3.4 (edit config.yaml for multi-value):
+#   lineage: ["Lineage1.1", "Lineage2.3.4"]
 ```
 
 ---
