@@ -1,0 +1,166 @@
+Config file config/config.yaml is extended by additional config specified via the command line.
+Assuming unrestricted shared filesystem usage.
+host: DESKTOP-G74MPKE
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 4
+Rules claiming more threads will be scaled down.
+Job stats:
+job                 count
+----------------  -------
+all                     1
+branch_mutations        1
+build_tree              1
+filter_samples          1
+total                   4
+
+Select jobs to execute...
+Execute 1 jobs...
+[Fri Mar  6 20:48:31 2026]
+localcheckpoint filter_samples:
+    input: data/strain_ids/Lineage7_strain.txt
+    output: depth30/lineage_tree/Lineage7_depth_30.txt
+    jobid: 3
+    reason: Missing output files: depth30/lineage_tree/Lineage7_depth_30.txt
+    resources: tmpdir=/tmp
+DAG of jobs will be updated after completion.
+[Fri Mar  6 20:48:32 2026]
+Finished jobid: 3 (Rule: filter_samples)
+1 of 4 steps (25%) done
+Updating checkpoint dependencies.
+Select jobs to execute...
+Execute 1 jobs...
+[Fri Mar  6 20:48:32 2026]
+localrule build_tree:
+    input: depth30/lineage_tree/Lineage7_depth_30.txt, data/old_cfa/Lineage7_delete.pos, data/tb.ancestor.fasta
+    output: depth30/lineage_tree/Lineage7_btp.treefile, depth30/lineage_tree/Lineage7_btp.state, depth30/lineage_tree/Lineage7.pos
+    jobid: 2
+    reason: Missing output files: depth30/lineage_tree/Lineage7_btp.treefile, depth30/lineage_tree/Lineage7_btp.state, depth30/lineage_tree/Lineage7.pos; Code has changed since last execution
+    threads: 4
+    resources: tmpdir=/tmp, mem_mb=200000, mem=200 GB, mem_mib=190735
+RuleException:
+CalledProcessError in file "/mnt/c/Users/Administrator/Documents/UNC_projects/MTB_phy_db/lingbo/EvoResist/Snakefile_single_lineage", line 128:
+Command 'set -euo pipefail;  
+        set -euo pipefail
+        lineage=Lineage7
+        tree_dir=depth30/lineage_tree
+        mkdir -p "$tree_dir"
+
+        # Build combined strain list: filtered strains + ancestor sequence "tb"
+        combined_strain_file="${tree_dir}/${lineage}_combined_strains.txt"
+        cp "depth30/lineage_tree/Lineage7_depth_30.txt" "$combined_strain_file"
+        echo "tb" >> "$combined_strain_file"
+
+        # Extract sequences from old CFA for the selected strains
+        python scripts/create_cfa.py "$combined_strain_file" "data/old_cfa/Lineage7.fa" "depth30/lineage_tree/Lineage7_tmp.fa"
+
+        # Remove invariant and sites with >5% missing data
+        perl scripts/del_invariant_customseq.pl "depth30/lineage_tree/Lineage7_tmp.fa" "data/old_cfa/Lineage7_delete.pos" "depth30/lineage_tree/Lineage7.fa" "depth30/lineage_tree/Lineage7.pos"
+
+        # Verify alignment was created
+        if [ ! -f "depth30/lineage_tree/Lineage7.fa" ]; then
+            echo "Error: Expected CFA file depth30/lineage_tree/Lineage7.fa not found!" >&2
+            exit 1
+        fi
+
+        # Build tree with IQ-TREE (GTR+F+R4 model with bootstrap and SH-aLRT support)
+        iqtree2 -s "depth30/lineage_tree/Lineage7.fa" \
+            -m GTR+F+R4 \
+            --seqtype DNA \
+            --prefix "${tree_dir}/${lineage}_btp" \
+            --mem 200000M \
+            -T 4 \
+            --ancestral \
+            -o tb \
+            -af fasta \' returned non-zero exit status 2.
+[Fri Mar  6 20:48:33 2026]
+Error in rule build_tree:
+    message: None
+    jobid: 2
+    input: depth30/lineage_tree/Lineage7_depth_30.txt, data/old_cfa/Lineage7_delete.pos, data/tb.ancestor.fasta
+    output: depth30/lineage_tree/Lineage7_btp.treefile, depth30/lineage_tree/Lineage7_btp.state, depth30/lineage_tree/Lineage7.pos
+    shell:
+        
+        set -euo pipefail
+        lineage=Lineage7
+        tree_dir=depth30/lineage_tree
+        mkdir -p "$tree_dir"
+
+        # Build combined strain list: filtered strains + ancestor sequence "tb"
+        combined_strain_file="${tree_dir}/${lineage}_combined_strains.txt"
+        cp "depth30/lineage_tree/Lineage7_depth_30.txt" "$combined_strain_file"
+        echo "tb" >> "$combined_strain_file"
+
+        # Extract sequences from old CFA for the selected strains
+        python scripts/create_cfa.py "$combined_strain_file" "data/old_cfa/Lineage7.fa" "depth30/lineage_tree/Lineage7_tmp.fa"
+
+        # Remove invariant and sites with >5% missing data
+        perl scripts/del_invariant_customseq.pl "depth30/lineage_tree/Lineage7_tmp.fa" "data/old_cfa/Lineage7_delete.pos" "depth30/lineage_tree/Lineage7.fa" "depth30/lineage_tree/Lineage7.pos"
+
+        # Verify alignment was created
+        if [ ! -f "depth30/lineage_tree/Lineage7.fa" ]; then
+            echo "Error: Expected CFA file depth30/lineage_tree/Lineage7.fa not found!" >&2
+            exit 1
+        fi
+
+        # Build tree with IQ-TREE (GTR+F+R4 model with bootstrap and SH-aLRT support)
+        iqtree2 -s "depth30/lineage_tree/Lineage7.fa" \
+            -m GTR+F+R4 \
+            --seqtype DNA \
+            --prefix "${tree_dir}/${lineage}_btp" \
+            --mem 200000M \
+            -T 4 \
+            --ancestral \
+            -o tb \
+            -af fasta \
+        
+        (command exited with non-zero exit code)
+Removing output files of failed job build_tree since they might be corrupted:
+depth30/lineage_tree/Lineage7.pos
+Shutting down, this might take some time.
+Exiting because a job execution failed. Look below for error messages
+[Fri Mar  6 20:48:33 2026]
+Error in rule build_tree:
+    message: None
+    jobid: 2
+    input: depth30/lineage_tree/Lineage7_depth_30.txt, data/old_cfa/Lineage7_delete.pos, data/tb.ancestor.fasta
+    output: depth30/lineage_tree/Lineage7_btp.treefile, depth30/lineage_tree/Lineage7_btp.state, depth30/lineage_tree/Lineage7.pos
+    shell:
+        
+        set -euo pipefail
+        lineage=Lineage7
+        tree_dir=depth30/lineage_tree
+        mkdir -p "$tree_dir"
+
+        # Build combined strain list: filtered strains + ancestor sequence "tb"
+        combined_strain_file="${tree_dir}/${lineage}_combined_strains.txt"
+        cp "depth30/lineage_tree/Lineage7_depth_30.txt" "$combined_strain_file"
+        echo "tb" >> "$combined_strain_file"
+
+        # Extract sequences from old CFA for the selected strains
+        python scripts/create_cfa.py "$combined_strain_file" "data/old_cfa/Lineage7.fa" "depth30/lineage_tree/Lineage7_tmp.fa"
+
+        # Remove invariant and sites with >5% missing data
+        perl scripts/del_invariant_customseq.pl "depth30/lineage_tree/Lineage7_tmp.fa" "data/old_cfa/Lineage7_delete.pos" "depth30/lineage_tree/Lineage7.fa" "depth30/lineage_tree/Lineage7.pos"
+
+        # Verify alignment was created
+        if [ ! -f "depth30/lineage_tree/Lineage7.fa" ]; then
+            echo "Error: Expected CFA file depth30/lineage_tree/Lineage7.fa not found!" >&2
+            exit 1
+        fi
+
+        # Build tree with IQ-TREE (GTR+F+R4 model with bootstrap and SH-aLRT support)
+        iqtree2 -s "depth30/lineage_tree/Lineage7.fa" \
+            -m GTR+F+R4 \
+            --seqtype DNA \
+            --prefix "${tree_dir}/${lineage}_btp" \
+            --mem 200000M \
+            -T 4 \
+            --ancestral \
+            -o tb \
+            -af fasta \
+        
+        (command exited with non-zero exit code)
+Complete log(s): /mnt/c/Users/Administrator/Documents/UNC_projects/MTB_phy_db/lingbo/EvoResist/.snakemake/log/2026-03-06T204831.517027.snakemake.log
+WorkflowError:
+At least one job did not complete successfully.

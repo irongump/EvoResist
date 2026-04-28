@@ -1,0 +1,267 @@
+Config file config/config.yaml is extended by additional config specified via the command line.
+Assuming unrestricted shared filesystem usage.
+host: DESKTOP-G74MPKE
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 4
+Rules claiming more threads will be scaled down.
+Job stats:
+job                 count
+----------------  -------
+all                     1
+branch_mutations        1
+build_tree              1
+filter_samples          1
+total                   4
+
+Select jobs to execute...
+Execute 1 jobs...
+[Fri Mar  6 20:49:40 2026]
+localcheckpoint filter_samples:
+    input: data/strain_ids/Lineage7_strain.txt
+    output: depth30/lineage_tree/Lineage7_depth_30.txt
+    jobid: 3
+    reason: Missing output files: depth30/lineage_tree/Lineage7_depth_30.txt
+    resources: tmpdir=/tmp
+DAG of jobs will be updated after completion.
+[Fri Mar  6 20:49:41 2026]
+Finished jobid: 3 (Rule: filter_samples)
+1 of 4 steps (25%) done
+Updating checkpoint dependencies.
+Select jobs to execute...
+Execute 1 jobs...
+[Fri Mar  6 20:49:41 2026]
+localrule build_tree:
+    input: depth30/lineage_tree/Lineage7_depth_30.txt, data/old_cfa/Lineage7_delete.pos, data/tb.ancestor.fasta
+    output: depth30/lineage_tree/Lineage7_btp.treefile, depth30/lineage_tree/Lineage7_btp.state, depth30/lineage_tree/Lineage7.pos
+    jobid: 2
+    reason: Missing output files: depth30/lineage_tree/Lineage7_btp.state, depth30/lineage_tree/Lineage7.pos, depth30/lineage_tree/Lineage7_btp.treefile; Code has changed since last execution
+    threads: 4
+    resources: tmpdir=/tmp, mem_mb=200000, mem=200 GB, mem_mib=190735
+[Fri Mar  6 20:50:07 2026]
+Finished jobid: 2 (Rule: build_tree)
+2 of 4 steps (50%) done
+Select jobs to execute...
+Execute 1 jobs...
+[Fri Mar  6 20:50:07 2026]
+localrule branch_mutations:
+    input: depth30/lineage_tree/Lineage7_btp.treefile, depth30/lineage_tree/Lineage7_btp.state, depth30/lineage_tree/Lineage7.pos, data/RLC_lowmapK50E4_H37Rv_pos.txt, data/tb.ancestor.fasta
+    output: depth30/lineage_ann/Lineage7.ann
+    jobid: 1
+    reason: Missing output files: depth30/lineage_ann/Lineage7.ann; Input files updated by another job: depth30/lineage_tree/Lineage7.pos, depth30/lineage_tree/Lineage7_btp.treefile, depth30/lineage_tree/Lineage7_btp.state
+    threads: 4
+    resources: tmpdir=/tmp, mem_mb=20000, mem=20 GB, mem_mib=19074
+RuleException:
+CalledProcessError in file "/mnt/c/Users/Administrator/Documents/UNC_projects/MTB_phy_db/lingbo/EvoResist/Snakefile_single_lineage", line 186:
+Command 'set -euo pipefail;  
+        set -euo pipefail
+        lineage=Lineage7
+        tree_dir=depth30/lineage_tree
+        ann_dir=depth30/lineage_ann
+        cfa_dir=depth30/lineage_cfa
+        low_ebr=data/RLC_lowmapK50E4_H37Rv_pos.txt
+        mkdir -p "$ann_dir"
+
+        cd "$tree_dir"
+
+        # Extract ancestral sequences for each node
+        perl ../../scripts/nodes_base_locus_iqtree.pl \
+            ${lineage}_btp.treefile \
+            ${lineage}.pos \
+            ${lineage}_btp.state \
+            ${lineage}.fa \
+            ${lineage}.db \
+            ${lineage}_homoplasy.txt
+
+        # Extract mutations from the database file
+        perl ../../scripts/db2mutation.pl ${lineage}.db \
+            > ${lineage}_db_mutation.txt
+
+        # Annotate with leaf counts per node
+        python ../../scripts/node_leafs.py \
+            ${lineage}_btp.treefile \
+            ${lineage}_db_mutation.txt \
+            > ${lineage}_db_mutation2.txt
+
+        # Remove ancestral (lineage-defining) mutations
+        python ../../scripts/filter_lineage_defining.py \
+            ${lineage}_db_mutation2.txt \
+            ${lineage} \
+            ../../data/100k_5000_level1_candidate_nodes.txt \
+            ../../data/100k_5000_db_mutation2.txt \
+            ../../data/lineage_ancestor_nodes.csv \
+            > ${lineage}_db_mutation2_rmanc.txt
+
+        # Generate per-node SNP files
+        python ../../scripts/getrefbase_per_node.py \
+            ${lineage}_db_mutation2_rmanc.txt ${lineage} \
+            ../../data/tb.ancestor.fasta
+
+        # Annotate each node's mutations in parallel
+        find "${lineage}" -maxdepth 1 -name "*snp" -print0 | \
+            parallel -0 -j 4 '
+                python ../../scripts/remove_low_ebr.py \
+                    "../../'"$low_ebr"'" "{}" \
+                    > "{= s/\.snp$// =}_rle.snp" &&
+                perl ../../scripts/mtbc_translate/0_MTBC_Annotation_mtbc_4411532_corrected.pl \
+                    "{= s/\.snp$// =}_rle.snp" \
+                    > "{= s/\.snp$// =}.ann" &&
+                sed -i "/^$/d" "{= s/\.snp$// =}.ann"
+            '
+
+        cat "${lineage}"/*.ann > "../../${ann_dir}/${lineage}.ann"
+
+        # Clean up temporary files
+        rm -f ${lineage}_db_mutation.txt ${lineage}_db_mutation2.txt
+        rm -rf "${lineage}"
+
+        cd ../..' returned non-zero exit status 1.
+[Fri Mar  6 20:50:08 2026]
+Error in rule branch_mutations:
+    message: None
+    jobid: 1
+    input: depth30/lineage_tree/Lineage7_btp.treefile, depth30/lineage_tree/Lineage7_btp.state, depth30/lineage_tree/Lineage7.pos, data/RLC_lowmapK50E4_H37Rv_pos.txt, data/tb.ancestor.fasta
+    output: depth30/lineage_ann/Lineage7.ann
+    shell:
+        
+        set -euo pipefail
+        lineage=Lineage7
+        tree_dir=depth30/lineage_tree
+        ann_dir=depth30/lineage_ann
+        cfa_dir=depth30/lineage_cfa
+        low_ebr=data/RLC_lowmapK50E4_H37Rv_pos.txt
+        mkdir -p "$ann_dir"
+
+        cd "$tree_dir"
+
+        # Extract ancestral sequences for each node
+        perl ../../scripts/nodes_base_locus_iqtree.pl \
+            ${lineage}_btp.treefile \
+            ${lineage}.pos \
+            ${lineage}_btp.state \
+            ${lineage}.fa \
+            ${lineage}.db \
+            ${lineage}_homoplasy.txt
+
+        # Extract mutations from the database file
+        perl ../../scripts/db2mutation.pl ${lineage}.db \
+            > ${lineage}_db_mutation.txt
+
+        # Annotate with leaf counts per node
+        python ../../scripts/node_leafs.py \
+            ${lineage}_btp.treefile \
+            ${lineage}_db_mutation.txt \
+            > ${lineage}_db_mutation2.txt
+
+        # Remove ancestral (lineage-defining) mutations
+        python ../../scripts/filter_lineage_defining.py \
+            ${lineage}_db_mutation2.txt \
+            ${lineage} \
+            ../../data/100k_5000_level1_candidate_nodes.txt \
+            ../../data/100k_5000_db_mutation2.txt \
+            ../../data/lineage_ancestor_nodes.csv \
+            > ${lineage}_db_mutation2_rmanc.txt
+
+        # Generate per-node SNP files
+        python ../../scripts/getrefbase_per_node.py \
+            ${lineage}_db_mutation2_rmanc.txt ${lineage} \
+            ../../data/tb.ancestor.fasta
+
+        # Annotate each node's mutations in parallel
+        find "${lineage}" -maxdepth 1 -name "*snp" -print0 | \
+            parallel -0 -j 4 '
+                python ../../scripts/remove_low_ebr.py \
+                    "../../'"$low_ebr"'" "{}" \
+                    > "{= s/\.snp$// =}_rle.snp" &&
+                perl ../../scripts/mtbc_translate/0_MTBC_Annotation_mtbc_4411532_corrected.pl \
+                    "{= s/\.snp$// =}_rle.snp" \
+                    > "{= s/\.snp$// =}.ann" &&
+                sed -i "/^$/d" "{= s/\.snp$// =}.ann"
+            '
+
+        cat "${lineage}"/*.ann > "../../${ann_dir}/${lineage}.ann"
+
+        # Clean up temporary files
+        rm -f ${lineage}_db_mutation.txt ${lineage}_db_mutation2.txt
+        rm -rf "${lineage}"
+
+        cd ../..
+        
+        (command exited with non-zero exit code)
+Shutting down, this might take some time.
+Exiting because a job execution failed. Look below for error messages
+[Fri Mar  6 20:50:08 2026]
+Error in rule branch_mutations:
+    message: None
+    jobid: 1
+    input: depth30/lineage_tree/Lineage7_btp.treefile, depth30/lineage_tree/Lineage7_btp.state, depth30/lineage_tree/Lineage7.pos, data/RLC_lowmapK50E4_H37Rv_pos.txt, data/tb.ancestor.fasta
+    output: depth30/lineage_ann/Lineage7.ann
+    shell:
+        
+        set -euo pipefail
+        lineage=Lineage7
+        tree_dir=depth30/lineage_tree
+        ann_dir=depth30/lineage_ann
+        cfa_dir=depth30/lineage_cfa
+        low_ebr=data/RLC_lowmapK50E4_H37Rv_pos.txt
+        mkdir -p "$ann_dir"
+
+        cd "$tree_dir"
+
+        # Extract ancestral sequences for each node
+        perl ../../scripts/nodes_base_locus_iqtree.pl \
+            ${lineage}_btp.treefile \
+            ${lineage}.pos \
+            ${lineage}_btp.state \
+            ${lineage}.fa \
+            ${lineage}.db \
+            ${lineage}_homoplasy.txt
+
+        # Extract mutations from the database file
+        perl ../../scripts/db2mutation.pl ${lineage}.db \
+            > ${lineage}_db_mutation.txt
+
+        # Annotate with leaf counts per node
+        python ../../scripts/node_leafs.py \
+            ${lineage}_btp.treefile \
+            ${lineage}_db_mutation.txt \
+            > ${lineage}_db_mutation2.txt
+
+        # Remove ancestral (lineage-defining) mutations
+        python ../../scripts/filter_lineage_defining.py \
+            ${lineage}_db_mutation2.txt \
+            ${lineage} \
+            ../../data/100k_5000_level1_candidate_nodes.txt \
+            ../../data/100k_5000_db_mutation2.txt \
+            ../../data/lineage_ancestor_nodes.csv \
+            > ${lineage}_db_mutation2_rmanc.txt
+
+        # Generate per-node SNP files
+        python ../../scripts/getrefbase_per_node.py \
+            ${lineage}_db_mutation2_rmanc.txt ${lineage} \
+            ../../data/tb.ancestor.fasta
+
+        # Annotate each node's mutations in parallel
+        find "${lineage}" -maxdepth 1 -name "*snp" -print0 | \
+            parallel -0 -j 4 '
+                python ../../scripts/remove_low_ebr.py \
+                    "../../'"$low_ebr"'" "{}" \
+                    > "{= s/\.snp$// =}_rle.snp" &&
+                perl ../../scripts/mtbc_translate/0_MTBC_Annotation_mtbc_4411532_corrected.pl \
+                    "{= s/\.snp$// =}_rle.snp" \
+                    > "{= s/\.snp$// =}.ann" &&
+                sed -i "/^$/d" "{= s/\.snp$// =}.ann"
+            '
+
+        cat "${lineage}"/*.ann > "../../${ann_dir}/${lineage}.ann"
+
+        # Clean up temporary files
+        rm -f ${lineage}_db_mutation.txt ${lineage}_db_mutation2.txt
+        rm -rf "${lineage}"
+
+        cd ../..
+        
+        (command exited with non-zero exit code)
+Complete log(s): /mnt/c/Users/Administrator/Documents/UNC_projects/MTB_phy_db/lingbo/EvoResist/.snakemake/log/2026-03-06T204940.467924.snakemake.log
+WorkflowError:
+At least one job did not complete successfully.

@@ -17,9 +17,11 @@ except FileNotFoundError:
     print(f"Error: Fasta file {fasta_file} not found. Please check the path.")
     exit()
 
-num_positions = len(reference_genome)  
-num_mutations = 2345799    
-num_simulations = 1000
+num_positions = len(reference_genome) 
+ 
+num_mutations = 2345799  #mutation events number 
+#num_mutations = 121866397
+num_simulations = 100
 
 bases = np.array(["A", "C", "G", "T"])
 ref_numeric = np.searchsorted(bases, reference_genome)
@@ -35,23 +37,44 @@ gtr_probs_raw = np.array([
 ])
 gtr_probs = gtr_probs_raw / gtr_probs_raw.sum(axis=1)[:, np.newaxis]
 
-mut_counts_ffd = np.array([123621, 491508, 534200, 137364])
-ref_counts = np.array([(reference_genome == b).sum() for b in bases])
-raw_rates = mut_counts_ffd / ref_counts
+#mut_counts_ffd = np.array([123621, 491508, 534200, 137364])
+mut_counts_ffd = np.array([3566278, 13977195, 14762717, 3937073])
+# ref_counts = np.array([(reference_genome == b).sum() for b in bases])
+# raw_rates = mut_counts_ffd / ref_counts
+# base_mutability = raw_rates / np.mean(raw_rates)
+# site_base_weights = base_mutability[ref_numeric]
+
+# print("old base mutability:")
+# print(base_mutability)
+
+ref_counts_ffd = np.array([76163, 331317, 331973, 74776])
+raw_rates = mut_counts_ffd / ref_counts_ffd
 base_mutability = raw_rates / np.mean(raw_rates)
 site_base_weights = base_mutability[ref_numeric]
+print("site base weights (first 10):", site_base_weights[:10])
+# print("new base mutability:")
+# print(base_mutability)
 
 # ---------------------------------------------------------
 # 3. Generate Global Lambda Array (Executed Once)
 # ---------------------------------------------------------
 print("Initializing global mutational landscape...")
-lambda_mean = num_mutations / num_positions
-gamma_alpha = 0.5  
+lambda_mean = num_mutations / num_positions #estimate by dividing total mutations events by genome length
+#lambda_mean = 1
+print(f"Estimated mean mutation rate (lambda_mean): {lambda_mean:.6f}")
+gamma_alpha = 1 
 
 # Generate the background gamma rate for each site
 base_lambda_array = np.random.gamma(shape=gamma_alpha, scale=lambda_mean/gamma_alpha, size=num_positions)
 # Scale it using the empirical GTR base mutability
 lambda_poisson_array = base_lambda_array * site_base_weights
+# Print the total number of positions/sites
+print(f"Total length of base_lambda_array: {base_lambda_array.size}")
+print(f"Total length of lambda_poisson_array: {lambda_poisson_array.size}")
+# Print the first 5 elements of each array
+print("Base Lambda Array (First 5):", base_lambda_array[:10])
+print("Lambda Poisson Array (First 5):", lambda_poisson_array[:10])
+print("Mean of Lambda Poisson Array:", np.mean(lambda_poisson_array))
 
 alt = np.array([
     [1, 2, 3],  
@@ -99,7 +122,7 @@ def simulate_single_replicate(sim_idx):
 # ---------------------------------------------------------
 if __name__ == '__main__':
     # Determine number of CPU cores to use (leave 2 for OS stability)
-    num_cores = max(1, mp.cpu_count() - 2)
+    num_cores = max(1, mp.cpu_count() - 4)
     print(f"Starting parallel simulation of {num_simulations} replicates using {num_cores} CPU cores...")
     
     results_list = []
@@ -116,17 +139,17 @@ if __name__ == '__main__':
     # 6. Build Final Null Distribution and Save
     # ---------------------------------------------------------
     # Concatenate all parallel results into one comprehensive DataFrame
-    mutation_df = pd.concat(results_list, ignore_index=True)
+    # mutation_df = pd.concat(results_list, ignore_index=True)
     
-    # Calculate empirical null distribution
-    dist_df = mutation_df.groupby(['sim_index', 'simulated_homoplasy_count']).size().reset_index(name='num_sites')
-    dist_df.to_csv("null_mutation_df_GTR.csv", index=False)
+    # # Calculate empirical null distribution
+    # dist_df = mutation_df.groupby(['sim_index', 'simulated_homoplasy_count']).size().reset_index(name='num_sites')
+    # dist_df.to_csv("null_mutation_df_GTR_v3.csv", index=False)
     
-    summary_dist = dist_df.groupby('simulated_homoplasy_count')['num_sites'].agg(['mean', 'std']).reset_index()
-    summary_dist['lower_95'] = np.maximum(0, summary_dist['mean'] - 1.96 * summary_dist['std'])
-    summary_dist['upper_95'] = summary_dist['mean'] + 1.96 * summary_dist['std']
+    # summary_dist = dist_df.groupby('simulated_homoplasy_count')['num_sites'].agg(['mean', 'std']).reset_index()
+    # summary_dist['lower_95'] = np.maximum(0, summary_dist['mean'] - 1.96 * summary_dist['std'])
+    # summary_dist['upper_95'] = summary_dist['mean'] + 1.96 * summary_dist['std']
     
-    summary_dist.to_csv("expected_null_distribution_GTR_Gamma.csv", index=False)
-    mutation_df.to_csv("simulated_mutations_raw_GTR_Gamma.csv", index=False)
+    # summary_dist.to_csv("expected_null_distribution_GTR_Gamma_v3.csv", index=False)
+    # mutation_df.to_csv("simulated_mutations_raw_GTR_Gamma_v3.csv", index=False)
     
     print("Statistically sound null models saved successfully.")

@@ -605,5 +605,9 @@ rule simulation:
         r"""
         mkdir -p {params.sim_dir}
         cd {params.sim_dir}
+        #optional, if you want to get GTR probs using your own data, you can run the following command 
+        #and replace the output GTR probs in the simulation_GTR_gamma.py script
+        #python ../../scripts/fourfold_dgr_rate.py ../../{OUTDIR}/lineage_ann/
+        
         python ../../scripts/simulation_GTR_gamma.py
         """

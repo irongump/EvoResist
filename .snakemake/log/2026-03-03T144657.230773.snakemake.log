@@ -1,0 +1,80 @@
+Config file config/config.yaml is extended by additional config specified via the command line.
+Assuming unrestricted shared filesystem usage.
+host: DESKTOP-G74MPKE
+Migrating .snakemake folder to new format...
+Migration complete
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 4
+Rules claiming more threads will be scaled down.
+Job stats:
+job                 count
+----------------  -------
+all                     1
+branch_mutations        1
+build_tree              1
+filter_samples          1
+total                   4
+
+Select jobs to execute...
+Execute 1 jobs...
+[Tue Mar  3 14:46:57 2026]
+localcheckpoint filter_samples:
+    input: data/strain_ids/Lineage5_strain.txt
+    output: depth_30/lineage_tree/Lineage5_strain_depth_30.txt
+    jobid: 3
+    reason: Missing output files: depth_30/lineage_tree/Lineage5_strain_depth_30.txt
+    resources: tmpdir=/tmp
+DAG of jobs will be updated after completion.
+RuleException:
+CalledProcessError in file "/mnt/c/Users/Administrator/Documents/UNC_projects/MTB_phy_db/lingbo/EvoResist/Snakefile_single_lineage", line 93:
+Command 'set -euo pipefail;  
+        set -euo pipefail
+        mkdir -p depth_30/lineage_tree
+        Rscript scripts/sample_flt.R \
+            data/strain_ids/Lineage5_strain.txt \
+            data/100k_depth.txt \
+            30
+        flt_base="$(basename data/strain_ids/Lineage5_strain.txt .txt)_depth_30.txt"
+        mv "$flt_base" depth_30/lineage_tree/Lineage5_strain_depth_30.txt' returned non-zero exit status 127.
+[Tue Mar  3 14:46:57 2026]
+Error in rule filter_samples:
+    message: None
+    jobid: 3
+    input: data/strain_ids/Lineage5_strain.txt
+    output: depth_30/lineage_tree/Lineage5_strain_depth_30.txt
+    shell:
+        
+        set -euo pipefail
+        mkdir -p depth_30/lineage_tree
+        Rscript scripts/sample_flt.R \
+            data/strain_ids/Lineage5_strain.txt \
+            data/100k_depth.txt \
+            30
+        flt_base="$(basename data/strain_ids/Lineage5_strain.txt .txt)_depth_30.txt"
+        mv "$flt_base" depth_30/lineage_tree/Lineage5_strain_depth_30.txt
+        
+        (command exited with non-zero exit code)
+Shutting down, this might take some time.
+Exiting because a job execution failed. Look below for error messages
+[Tue Mar  3 14:46:57 2026]
+Error in rule filter_samples:
+    message: None
+    jobid: 3
+    input: data/strain_ids/Lineage5_strain.txt
+    output: depth_30/lineage_tree/Lineage5_strain_depth_30.txt
+    shell:
+        
+        set -euo pipefail
+        mkdir -p depth_30/lineage_tree
+        Rscript scripts/sample_flt.R \
+            data/strain_ids/Lineage5_strain.txt \
+            data/100k_depth.txt \
+            30
+        flt_base="$(basename data/strain_ids/Lineage5_strain.txt .txt)_depth_30.txt"
+        mv "$flt_base" depth_30/lineage_tree/Lineage5_strain_depth_30.txt
+        
+        (command exited with non-zero exit code)
+Complete log(s): /mnt/c/Users/Administrator/Documents/UNC_projects/MTB_phy_db/lingbo/EvoResist/.snakemake/log/2026-03-03T144657.230773.snakemake.log
+WorkflowError:
+At least one job did not complete successfully.
