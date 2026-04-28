@@ -85,3 +85,26 @@ num_mutations: 2345799
 threads_per_sample: 2
 threads_tree: 64
 threads_annotation: 24
+
+# -- DR mutation selection analysis (Step 7+) ---------------------------------
+# Base directory for drug resistance mutation selection outputs.
+dr_results_dir: "dr_results"
+
+# Directory containing per-sample SNP annotation files (one file per sample,
+# named {sample}.ano with columns: position, ref, alt).
+# Required when running step7 / dr_selection.
+snp_anno_dir: ""
+
+# Directory containing per-sample indel annotation files (one file per sample,
+# named {sample}.indel.ano with columns: position, ref, alt).
+# Required when running step7 / dr_selection.
+indel_anno_dir: ""
+
+# All-cohort indel file used to build drug-specific indel candidate lists.
+# Accepts a .gz compressed or plain text file.
+all_indel_file: "data/all_indel_100k.txt.gz"
+
+# Convergent SNP file used to build drug-specific SNP candidate lists.
+# Defaults to the output of step 5 (filter_convergent rule).
+# Override here to use a pre-existing file (e.g. data/all_ann_convergent_flt_v3.txt.gz).
+# dr_convergent_snp_file: "data/all_ann_convergent_flt_v3.txt.gz"

@@ -142,6 +142,75 @@ if INPUT_TYPE == "fastq":
     ALL_SAMPLES = _found
 
 # =============================================================================
+# DR mutation selection analysis configuration (Step 7+)
+# =============================================================================
+DR_DIR             = config.get("dr_results_dir", "dr_results")
+_DR_SNP_SOURCE     = config.get(
+    "dr_convergent_snp_file",
+    f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt",
+)
+_DR_INDEL_FILE     = config.get("all_indel_file", "data/all_indel_100k.txt.gz")
+_DR_SNP_ANNO_DIR   = config.get("snp_anno_dir", "")
+_DR_INDEL_ANNO_DIR = config.get("indel_anno_dir", "")
+
+_DR_DRUGS = [
+    "RIF", "INH", "EMB", "PZA", "LFX", "MFX",
+    "BDQ", "AMK", "STM", "ETO", "KAN", "CAP", "LZD",
+]
+
+# Best convergence threshold per drug (determined from training-set optimisation)
+_DR_BEST_THRESHOLDS = {
+    "RIF": 6, "INH": 3, "EMB": 5, "PZA": 2, "LFX": 6, "MFX": 6,
+    "BDQ": 3, "AMK": 6, "STM": 5, "ETO": 4, "KAN": 6, "CAP": 6, "LZD": 5,
+}
+
+# Per-drug gene parameters used by 02/04/05 R scripts
+# Keys: genes, starts, ends, lof (LoF flags for 04/05), strands (for 02/04/05)
+_DR_GENE_PARAMS = {
+    "RIF": {"genes": "rpoB",             "starts": "759807",                 "ends": "763325",                 "lof": "0",      "strands": "1"},
+    "INH": {"genes": "inhA,katG",        "starts": "1674202,2153889",        "ends": "1675011,2156111",         "lof": "0,1",    "strands": "1,0"},
+    "EMB": {"genes": "embB",             "starts": "4246514",                "ends": "4249810",                 "lof": "0",      "strands": "1"},
+    "PZA": {"genes": "pncA",             "starts": "2288681",                "ends": "2289241",                 "lof": "1",      "strands": "0"},
+    "LFX": {"genes": "gyrB,gyrA",        "starts": "5240,7302",              "ends": "7262,9818",               "lof": "0,0",    "strands": "1,1"},
+    "MFX": {"genes": "gyrB,gyrA",        "starts": "5240,7302",              "ends": "7262,9818",               "lof": "0,0",    "strands": "1,1"},
+    "BDQ": {"genes": "Rv0678,atpE,pepQ", "starts": "778990,1461045,2859300", "ends": "779487,1461290,2860418",  "lof": "1,0,1",  "strands": "1,1,0"},
+    "AMK": {"genes": "rrs,eis",          "starts": "1471846,2714124",        "ends": "1473382,2715332",         "lof": "0,0",    "strands": "1,0"},
+    "STM": {"genes": "gid,rpsL",         "starts": "4407528,781560",         "ends": "4408202,781934",          "lof": "1,0",    "strands": "0,1"},
+    "ETO": {"genes": "inhA,ethA",        "starts": "1674202,4326004",        "ends": "1675011,4327473",         "lof": "0,1",    "strands": "1,0"},
+    "KAN": {"genes": "rrs,eis",          "starts": "1471846,2714124",        "ends": "1473382,2715332",         "lof": "0,0",    "strands": "1,0"},
+    "CAP": {"genes": "rrs,tlyA",         "starts": "1471846,1917940",        "ends": "1473382,1918746",         "lof": "0,1",    "strands": "1,1"},
+    "LZD": {"genes": "rplC,rrl",         "starts": "800809,1473658",         "ends": "801462,1476795",          "lof": "0,0",    "strands": "1,1"},
+}
+
+# Threshold and promoter sweep parameters
+_DR_THRES_SWEEP = [2, 3, 4, 5, 6]
+_DR_PROM_FIXED  = 500
+_DR_PROM_SWEEP  = [100, 200, 300, 400, 600, 700, 800, 900, 1000]
+
+# All (drug, threshold, promoter) combos – threshold sweep + promoter sweep
+_DR_THRES_COMBOS = [(d, t, _DR_PROM_FIXED) for d in _DR_DRUGS for t in _DR_THRES_SWEEP]
+_DR_PROM_COMBOS  = [(d, _DR_BEST_THRESHOLDS[d], p) for d in _DR_DRUGS for p in _DR_PROM_SWEEP]
+_DR_ALL_COMBOS   = _DR_THRES_COMBOS + _DR_PROM_COMBOS
+
+# Output targets for each DR analysis stage
+_DR_PREP_TARGETS = (
+    expand(f"{DR_DIR}/{{drug}}/id/train_70.txt",                      drug=_DR_DRUGS) +
+    expand(f"{DR_DIR}/{{drug}}/denovo_snp_2.txt",                     drug=_DR_DRUGS) +
+    expand(f"{DR_DIR}/{{drug}}/denovo_EvoResist_initial_list.txt",    drug=_DR_DRUGS)
+)
+
+_DR_SWEEP_TARGETS = _DR_PREP_TARGETS + [
+    f"{DR_DIR}/{d}/Threshold_{t}_Promoter_{p}_list2.tsv"
+    for d, t, p in _DR_ALL_COMBOS
+] + [
+    f"{DR_DIR}/{d}/Threshold_{t}_Promoter_{p}/train_list2/overall_metrics.tsv"
+    for d, t, p in _DR_ALL_COMBOS
+] + [
+    f"{DR_DIR}/{d}/Threshold_{t}_Promoter_{p}/test_list2/overall_metrics.tsv"
+    for d, t, p in _DR_ALL_COMBOS
+]
+
+# =============================================================================
 # Map each stop_at value to its corresponding output files
 # =============================================================================
 _SIMULATION_OUTPUTS = [
@@ -164,6 +233,11 @@ _STOP_STEP_MAP = {
     "step6":              _SIMULATION_OUTPUTS,
     "simulation":         _SIMULATION_OUTPUTS,
     "all":                _SIMULATION_OUTPUTS,
+    # DR mutation selection analysis (Step 7+)
+    "step7":              _DR_PREP_TARGETS,
+    "dr_prep":            _DR_PREP_TARGETS,
+    "step8":              _DR_SWEEP_TARGETS,
+    "dr_selection":       _DR_SWEEP_TARGETS,
 }
 
 if STOP_AT not in _STOP_STEP_MAP:
@@ -171,6 +245,21 @@ if STOP_AT not in _STOP_STEP_MAP:
         f"Invalid stop_at value '{STOP_AT}'. "
         f"Valid options: {sorted(set(_STOP_STEP_MAP.keys()))}"
     )
+
+# Validate that DR analysis prerequisites are set when a DR stop is requested
+if STOP_AT in ("step7", "dr_prep", "step8", "dr_selection"):
+    if not _DR_SNP_ANNO_DIR:
+        raise ValueError(
+            "config key 'snp_anno_dir' must be set when stop_at is a DR analysis step. "
+            "Point it to the directory containing per-sample SNP annotation files "
+            "named {sample}.ano (columns: position, ref, alt)."
+        )
+    if not _DR_INDEL_ANNO_DIR:
+        raise ValueError(
+            "config key 'indel_anno_dir' must be set when stop_at is a DR analysis step. "
+            "Point it to the directory containing per-sample indel annotation files "
+            "named {sample}.indel.ano (columns: position, ref, alt)."
+        )
 
 FINAL_TARGETS = _STOP_STEP_MAP[STOP_AT]
 
@@ -676,3 +765,228 @@ rule simulation:
         
         python ../../scripts/simulation_GTR_gamma.py
         """
+
+
+# =============================================================================
+# Step 7a: DR – Train / test split (per drug)
+# =============================================================================
+# Stratified 70/30 train-test split of the per-drug sample lists.
+
+rule dr_train_test_split:
+    input:
+        sample_list="data/{drug}_sample_list.txt",
+    output:
+        train=f"{DR_DIR}/{{drug}}/id/train_70.txt",
+        test=f"{DR_DIR}/{{drug}}/id/test_30.txt",
+    params:
+        outdir=lambda wc: f"{DR_DIR}/{wc.drug}/id",
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/01-train_test_split.R \
+            {input.sample_list} {params.outdir}
+        """
+
+
+# =============================================================================
+# Step 7b: DR – Filter convergent variants to drug-relevant genomic regions
+# =============================================================================
+# Applies drug-specific genomic region filters to the convergent SNP and
+# indel files to generate drug-focused candidate variant lists.
+
+rule dr_filter_variants:
+    input:
+        snp_file=_DR_SNP_SOURCE,
+        indel_file=_DR_INDEL_FILE,
+    output:
+        snp=f"{DR_DIR}/{{drug}}/denovo_snp_2.txt",
+        indel=f"{DR_DIR}/{{drug}}/denovo_indel_2.txt",
+    params:
+        drug="{drug}",
+        outdir=lambda wc: f"{DR_DIR}/{wc.drug}",
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p {params.outdir}
+
+        # Filter SNPs: all positions in each (possibly range-encoded) entry must
+        # fall within the drug-relevant genomic region.
+        # NOTE: SNP windows intentionally extend ~1000 bp upstream to capture
+        # promoter-region variants; indel filters below use exact gene coordinates.
+        # Boundaries match the filter_snp_allpos_inside function in 00-pipeline.sh.
+        snp_file={input.snp_file}
+        [[ "$snp_file" == *.gz ]] && snp_cat="zcat" || snp_cat="cat"
+        $snp_cat "$snp_file" | awk -F' ' -v DRUG='{params.drug}' '
+        $4 ~ /^[0-9]+(-[0-9]+)*$/ {{
+            n = split($4, a, "-")
+            keep = 1
+            for (i = 1; i <= n; i++) {{
+                pos = a[i]+0
+                ok = 0
+                if      (DRUG == "RIF") {{ ok = (pos >= 758807  && pos <= 763325) }}
+                else if (DRUG == "INH") {{ ok = ((pos >= 1672440 && pos <= 1675011) || (pos >= 2153889 && pos <= 2157111)) }}
+                else if (DRUG == "EMB") {{ ok = (pos >= 4245514  && pos <= 4249810) }}
+                else if (DRUG == "PZA") {{ ok = (pos >= 2288681  && pos <= 2290241) }}
+                else if (DRUG == "LFX" || DRUG == "MFX") {{ ok = (pos >= 4240 && pos <= 9818) }}
+                else if (DRUG == "BDQ") {{ ok = ((pos >= 777990  && pos <= 779487)  || (pos >= 1460045 && pos <= 1461290) || (pos >= 2858300 && pos <= 2861418)) }}
+                else if (DRUG == "AMK") {{ ok = ((pos >= 1470846 && pos <= 1473382) || (pos >= 2715332 && pos <= 2716332)) }}
+                else if (DRUG == "STM") {{ ok = ((pos >= 780560  && pos <= 781934)  || (pos >= 4407528 && pos <= 4409202) || pos == 1472359 || pos == 1472362) }}
+                else if (DRUG == "ETO") {{ ok = ((pos >= 4326004 && pos <= 4328473) || (pos >= 1672440 && pos <= 1675011)) }}
+                else if (DRUG == "KAN") {{ ok = ((pos >= 1470846 && pos <= 1473382) || (pos >= 2714124 && pos <= 2716332)) }}
+                else if (DRUG == "CAP") {{ ok = ((pos >= 1470846 && pos <= 1473382) || (pos >= 1916940 && pos <= 1918746)) }}
+                else if (DRUG == "LZD") {{ ok = ((pos >= 799809  && pos <= 801462)  || (pos >= 1472658 && pos <= 1476795)) }}
+                if (!ok) {{ keep = 0; break }}
+            }}
+            if (keep) print
+        }}' > {output.snp}
+
+        # Filter indels by position (column 2, tab-separated)
+        indel_file={input.indel_file}
+        [[ "$indel_file" == *.gz ]] && indel_cat="zcat" || indel_cat="cat"
+        $indel_cat "$indel_file" | awk -F'\t' -v DRUG='{params.drug}' '{{
+            pass = 0
+            if      (DRUG == "RIF") {{ pass = ($2 >= 759807  && $2 <= 763325) }}
+            else if (DRUG == "INH") {{ pass = (($2 >= 1674202 && $2 <= 1675011) || ($2 >= 2153889 && $2 <= 2156111)) }}
+            else if (DRUG == "EMB") {{ pass = ($2 >= 4246514  && $2 <= 4249810) }}
+            else if (DRUG == "PZA") {{ pass = ($2 >= 2288681  && $2 <= 2289241) }}
+            else if (DRUG == "LFX" || DRUG == "MFX") {{ pass = (($2 >= 5240 && $2 <= 7262) || ($2 >= 7302 && $2 <= 9818)) }}
+            else if (DRUG == "BDQ") {{ pass = (($2 >= 778990  && $2 <= 779487)  || ($2 >= 1461045 && $2 <= 1461290) || ($2 >= 2859300 && $2 <= 2860418)) }}
+            else if (DRUG == "AMK") {{ pass = (($2 >= 1471846 && $2 <= 1473382) || ($2 >= 2715332 && $2 <= 2716332)) }}
+            else if (DRUG == "STM") {{ pass = (($2 >= 781560  && $2 <= 781934)  || ($2 >= 4407528 && $2 <= 4408202)) }}
+            else if (DRUG == "ETO") {{ pass = (($2 >= 4326004 && $2 <= 4327473) || ($2 >= 1674202 && $2 <= 1675011)) }}
+            else if (DRUG == "KAN") {{ pass = (($2 >= 1471846 && $2 <= 1473382) || ($2 >= 2714124 && $2 <= 2716332)) }}
+            else if (DRUG == "CAP") {{ pass = (($2 >= 1471846 && $2 <= 1473382) || ($2 >= 1917940 && $2 <= 1918746)) }}
+            else if (DRUG == "LZD") {{ pass = (($2 >= 800809  && $2 <= 801462)  || ($2 >= 1473658 && $2 <= 1476795)) }}
+            if (pass) print
+        }}' > {output.indel}
+        """
+
+
+# =============================================================================
+# Step 7c: DR – Build annotated initial candidate variant list (per drug)
+# =============================================================================
+# Merges convergent SNPs and indels with WHO catalogue annotations, assigns
+# gene-body / promoter labels, and aggregates convergence event counts.
+# Requires per-drug WHO catalogue files placed at:
+#   <dr_results_dir>/<drug>/WHO_list/WHO_list_allGroup.txt
+
+rule dr_initial_list:
+    input:
+        snp=f"{DR_DIR}/{{drug}}/denovo_snp_2.txt",
+        indel=f"{DR_DIR}/{{drug}}/denovo_indel_2.txt",
+        who=f"{DR_DIR}/{{drug}}/WHO_list/WHO_list_allGroup.txt",
+    output:
+        f"{DR_DIR}/{{drug}}/denovo_EvoResist_initial_list.txt",
+    params:
+        drug="{drug}",
+        genes=lambda wc:   _DR_GENE_PARAMS[wc.drug]["genes"],
+        starts=lambda wc:  _DR_GENE_PARAMS[wc.drug]["starts"],
+        ends=lambda wc:    _DR_GENE_PARAMS[wc.drug]["ends"],
+        strands=lambda wc: _DR_GENE_PARAMS[wc.drug]["strands"],
+        results_dir=DR_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/02-make_initial_list.R \
+            {params.drug} {params.genes} {params.starts} {params.ends} \
+            {params.strands} {params.results_dir}
+        """
+
+
+# =============================================================================
+# Step 7d: DR – Generate list1 for a threshold × promoter combination
+# =============================================================================
+# Applies convergence-event-number threshold and promoter-length filter to
+# the annotated initial candidate list to produce list1.
+
+rule dr_make_list1:
+    input:
+        initial=f"{DR_DIR}/{{drug}}/denovo_EvoResist_initial_list.txt",
+    output:
+        f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}_list1.tsv",
+    params:
+        drug="{drug}",
+        genes=lambda wc:   _DR_GENE_PARAMS[wc.drug]["genes"],
+        starts=lambda wc:  _DR_GENE_PARAMS[wc.drug]["starts"],
+        ends=lambda wc:    _DR_GENE_PARAMS[wc.drug]["ends"],
+        lof=lambda wc:     _DR_GENE_PARAMS[wc.drug]["lof"],
+        strands=lambda wc: _DR_GENE_PARAMS[wc.drug]["strands"],
+        results_dir=DR_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/04-make_thres_prom_combination.R \
+            {params.drug} {params.genes} {params.starts} {params.ends} \
+            {params.lof} {wildcards.threshold} {wildcards.promoter} \
+            {params.strands} {params.results_dir}
+        """
+
+
+# =============================================================================
+# Step 7e: DR – Leave-one-out evaluation of a variant list on a sample split
+# =============================================================================
+# Computes per-isolate predictions, overall metrics (sensitivity, specificity,
+# PPV, NPV with 95 % Wilson CIs), and per-variant leave-one-out deltas.
+# Wildcard `listver` is `list1` or `list2`; `split` is `train` or `test`.
+
+rule dr_loo_evaluate:
+    input:
+        variants=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}_{{listver}}.tsv",
+        id_list=lambda wc: (
+            f"{DR_DIR}/{wc.drug}/id/train_70.txt"
+            if wc.split == "train"
+            else f"{DR_DIR}/{wc.drug}/id/test_30.txt"
+        ),
+    output:
+        overall=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}/{{split}}_{{listver}}/overall_metrics.tsv",
+        per_var=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}/{{split}}_{{listver}}/per_variant_analysis.tsv",
+        preds=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}/{{split}}_{{listver}}/isolate_predictions.tsv",
+    params:
+        snp_dir=_DR_SNP_ANNO_DIR,
+        indel_dir=_DR_INDEL_ANNO_DIR,
+        outdir=lambda wc: (
+            f"{DR_DIR}/{wc.drug}/Threshold_{wc.threshold}_Promoter_{wc.promoter}"
+            f"/{wc.split}_{wc.listver}"
+        ),
+    shell:
+        r"""
+        set -euo pipefail
+        python3 scripts/dr_mutation_selection/03-leave_one_out.py \
+            --variants_file {input.variants} \
+            --id_list_file  {input.id_list} \
+            --snp_dir       {params.snp_dir} \
+            --indel_dir     {params.indel_dir} \
+            --output_dir    {params.outdir}
+        """
+
+
+# =============================================================================
+# Step 7f: DR – Apply LOO filtering to produce list2 (per threshold × promoter)
+# =============================================================================
+# Reads per-variant leave-one-out results from the training-set evaluation of
+# list1 and removes variants whose removal improves combined sensitivity +
+# specificity, yielding a refined list2.
+
+rule dr_make_list2:
+    input:
+        loo=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}/train_list1/per_variant_analysis.tsv",
+    output:
+        list2=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}_list2.tsv",
+        removed=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}_list1_removingrecords.tsv",
+    params:
+        drug="{drug}",
+        genes=lambda wc:   _DR_GENE_PARAMS[wc.drug]["genes"],
+        starts=lambda wc:  _DR_GENE_PARAMS[wc.drug]["starts"],
+        ends=lambda wc:    _DR_GENE_PARAMS[wc.drug]["ends"],
+        lof=lambda wc:     _DR_GENE_PARAMS[wc.drug]["lof"],
+        strands=lambda wc: _DR_GENE_PARAMS[wc.drug]["strands"],
+        results_dir=DR_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/05-loo_evaluate.R \
+            {params.drug} {params.genes} {params.starts} {params.ends} \
+            {params.lof} {wildcards.threshold} {wildcards.promoter} \
+            {params.strands} {params.results_dir}
+        """
+

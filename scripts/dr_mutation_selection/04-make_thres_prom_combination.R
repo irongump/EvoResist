@@ -36,7 +36,7 @@ results_dir          <- args[9]
 print(paste0("Drug: ", drug_name, ", threshold ", threshold, ", promoter ", promoter_region, "."))
 
 # Load the annotated initial candidate list
-initial_list  <- fread(file.path(results_dir, drug_name, "Sens_analysis_75", "denovo_EvoResist_initial_list.txt"))
+initial_list  <- fread(file.path(results_dir, drug_name, "denovo_EvoResist_initial_list.txt"))
 initial_snp   <- initial_list[!is.na(Event_number), ]
 initial_indel <- initial_list[is.na(Event_number),  ]
 
@@ -148,7 +148,7 @@ out_list <- rbind(
 
 fwrite(
   out_list,
-  file.path(results_dir, drug_name, "Sens_analysis_75",
+  file.path(results_dir, drug_name,
             paste0("Threshold_", threshold, "_Promoter_", promoter_region, "_list1.tsv")),
   col.names = TRUE, row.names = FALSE, na = NA, sep = "\t", quote = FALSE
 )

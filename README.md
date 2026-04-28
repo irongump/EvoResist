@@ -6,16 +6,23 @@ Leveraging Convergent Evolution to Prioritize Antibiotic Resistance Mutations in
 
 ## Pipeline Overview
 
-The workflow consists of **6 steps**:
+The workflow consists of **8 steps** (Steps 1–6: convergent evolution analysis; Steps 7–8: DR mutation selection):
 
-| Step | Rule name | Description |
-|------|-----------|-------------|
+| Step | Rule name(s) | Description |
+|------|-------------|-------------|
 | 1 | `snp_calling` | SNP calling from FASTQ or SRA files (per sample) |
 | 2 | `build_tree` | Phylogenetic tree building with IQ-TREE (per lineage) |
 | 3 | `branch_mutations` | Branch mutation extraction from tree nodes (per lineage) |
 | 4 | `ancestor_mutations` | Ancestor mutation extraction (global) |
 | 5 | `merge_annotations` → `stat_convergent` → `filter_convergent` | Merge annotations and count convergent mutations (global) |
 | 6 | `simulation` | GTR+Gamma simulation for null distribution (global) |
+| 7a | `dr_train_test_split` | Stratified 70/30 train-test split of per-drug sample lists |
+| 7b | `dr_filter_variants` | Filter convergent SNPs/indels to drug-relevant genomic regions |
+| 7c | `dr_initial_list` | Build annotated initial candidate variant list per drug |
+| 7d | `dr_make_list1` | Apply threshold × promoter-length combination to generate list1 |
+| 7e | `dr_loo_evaluate` | Leave-one-out evaluation of a variant list on train or test split |
+| 7f | `dr_make_list2` | Apply LOO filtering criteria to generate refined list2 |
+| 8 | *(manual)* | Final evaluation and incremental gain analysis using curated final lists |
 
 ---
 
@@ -77,6 +84,8 @@ wget -P scripts/ \
 
 Edit `config/config.yaml` before running.  Key options:
 
+### Steps 1–6 (convergent evolution analysis)
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `outdir` | `"output"` | Base directory for all pipeline outputs |
@@ -85,7 +94,30 @@ Edit `config/config.yaml` before running.  Key options:
 | `fastq_dir` | *(none)* | **Required when `input_type: fastq`** — path to the directory containing pre-existing per-sample FASTQ files. Ignored for `sra` and `auto` modes. |
 | `lineage` | *(none — all)* | Process only the named lineage or list of lineages (e.g. `"Lineage1.1"` or `["Lineage1.1","Lineage2.3.4"]`). Each must correspond to a `<strain_ids_dir>/<lineage>_strain.txt` file. When omitted, all lineages are processed. |
 
-`stop_at` accepts either the step number (`step1`–`step6`) or the rule name.  
+### Steps 7–8 (DR mutation selection)
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `dr_results_dir` | `"dr_results"` | Base directory for DR mutation selection outputs |
+| `snp_anno_dir` | *(required)* | Directory containing per-sample SNP annotation files named `{sample}.ano` (tab-separated, columns: position, ref, alt). **Must be set** when running steps 7–8. |
+| `indel_anno_dir` | *(required)* | Directory containing per-sample indel annotation files named `{sample}.indel.ano` (same format). **Must be set** when running steps 7–8. |
+| `all_indel_file` | `"data/all_indel_100k.txt.gz"` | Cohort-wide indel file used to build per-drug indel candidate lists. Accepts `.gz` compressed or plain text. |
+| `dr_convergent_snp_file` | *(step 5 output)* | Convergent SNP file for DR analysis. Defaults to `<outdir>/lineage_ann/all_ann_convergent_flt.txt` (step 5 output). Override to use a pre-existing file (e.g. `data/all_ann_convergent_flt_v3.txt.gz`). |
+
+`stop_at` accepts either the step number (`step1`–`step8`/`dr_prep`/`dr_selection`) or the rule name.  
+Valid `stop_at` values:
+
+| Value | Alias | What is produced |
+|-------|-------|-----------------|
+| `step1` | `snp_calling` | Per-sample SNP files |
+| `step2` | `build_tree` | Per-lineage phylogenetic trees |
+| `step3` | `branch_mutations` | Per-lineage branch mutation annotations |
+| `step4` | `ancestor_mutations` | Ancestor mutation annotation |
+| `step5` | `merge_annotations` | Merged and filtered convergent mutation list |
+| `step6` | `simulation` / `all` | GTR simulation null distribution |
+| `step7` | `dr_prep` | DR data preparation (train/test split, filtered candidates, initial lists) |
+| `step8` | `dr_selection` | Full DR sweep: list1→LOO→list2→train/test evaluation for all threshold × promoter combinations |
+
 `input_type` values:
 - `auto` – look for FASTQ files in `<outdir>/fastq/`; if absent, convert from SRA into the same directory
 - `fastq` – FASTQ files already exist at the path given by `fastq_dir` (required); only samples whose FASTQ files are present in `fastq_dir` are processed (others are skipped with a warning)
@@ -120,15 +152,61 @@ snakemake --cores 8 --configfile config/config.yaml \
 ## Usage
 
 ```bash
-# Run the full pipeline (6 steps):
+# Run the full convergent evolution analysis (steps 1–6):
 snakemake --cores <N> --configfile config/config.yaml
 
 # Dry-run to check which jobs will be executed:
 snakemake --cores <N> --configfile config/config.yaml -n
 
+# Run the DR mutation selection analysis (steps 7–8).
+# Requires snp_anno_dir and indel_anno_dir to be configured.
+# If the step 5 output already exists, it is used directly without re-running
+# steps 1–6. To use a pre-existing convergent SNP file instead, set
+# dr_convergent_snp_file in config.yaml.
+snakemake --cores <N> --configfile config/config.yaml --config stop_at=dr_selection
+
 # Submit jobs to an HPC cluster (SLURM example):
 snakemake --cores <N> --configfile config/config.yaml \
     --cluster "sbatch --mem={resources.mem_mb}M --cpus-per-task={threads}"
+```
+
+### DR analysis – required data files
+
+Before running steps 7–8, ensure the following files are present:
+
+| File | Description |
+|------|-------------|
+| `data/{drug}_sample_list.txt` | Per-drug sample list with columns `Run` (sample ID) and `pheno` (R/S phenotype). One file per drug (RIF, INH, EMB, PZA, LFX, MFX, BDQ, AMK, STM, ETO, KAN, CAP, LZD). |
+| `{dr_results_dir}/{drug}/WHO_list/WHO_list_allGroup.txt` | WHO variant catalogue for each drug (headerless TSV). Must be placed in the correct subdirectory before running `dr_initial_list`. |
+| `data/all_indel_100k.txt.gz` | Cohort-wide indel file (configurable via `all_indel_file`). |
+| Per-sample SNP files | Files named `{sample}.ano` in the directory set by `snp_anno_dir`. |
+| Per-sample indel files | Files named `{sample}.indel.ano` in the directory set by `indel_anno_dir`. |
+
+### Step 8 – final evaluation (manual)
+
+Step 8 requires curated final variant lists that are produced after reviewing the threshold / promoter sweep results from step 7. Run the evaluation manually using the helper scripts once the lists are ready:
+
+```bash
+# Final evaluation on the full per-drug cohort
+for drug in RIF INH EMB PZA LFX MFX BDQ AMK STM ETO KAN CAP LZD; do
+    python3 scripts/dr_mutation_selection/03-leave_one_out.py \
+        --variants_file dr_results/${drug}/EvoResist_Final_list.tsv \
+        --id_list_file  data/${drug}_sample_list.txt \
+        --snp_dir       /path/to/snp_anno \
+        --indel_dir     /path/to/indel_anno \
+        --output_dir    dr_results/${drug}/Final_Evaluate/EvoResist/
+done
+
+# Incremental gain relative to WHO G1+G2
+for drug in RIF INH EMB PZA LFX MFX BDQ AMK STM ETO KAN CAP LZD; do
+    python3 scripts/dr_mutation_selection/06-gain_evaluation.py \
+        --list1_variants_file dr_results/${drug}/WHO_G1_2_withcolnames.txt \
+        --list2_variants_file dr_results/${drug}/EvoResist_Final_list.tsv \
+        --id_list_file        data/${drug}_sample_list.txt \
+        --snp_dir             /path/to/snp_anno \
+        --indel_dir           /path/to/indel_anno \
+        --output_file         dr_results/${drug}/gain_EvoResist.txt
+done
 ```
 
 ---
@@ -145,4 +223,26 @@ snakemake --cores <N> --configfile config/config.yaml \
 ├── lineage_tree/   # IQ-TREE output (tree, state files)
 ├── lineage_ann/    # Per-lineage and merged annotation files
 └── simulation/     # GTR simulation outputs (CSV)
+
+<dr_results_dir>/           # DR mutation selection outputs (default: dr_results/)
+└── {drug}/                 # One directory per drug
+    ├── id/
+    │   ├── train_70.txt    # Training-set sample IDs (70 %)
+    │   └── test_30.txt     # Test-set sample IDs (30 %)
+    ├── WHO_list/
+    │   └── WHO_list_allGroup.txt   # User-provided WHO catalogue (input)
+    ├── denovo_snp_2.txt            # Drug-region-filtered convergent SNPs
+    ├── denovo_indel_2.txt          # Drug-region-filtered indels
+    ├── denovo_EvoResist_initial_list.txt   # Annotated initial candidate list
+    ├── Threshold_{T}_Promoter_{P}_list1.tsv        # list1 (threshold × promoter)
+    ├── Threshold_{T}_Promoter_{P}_list2.tsv        # list2 (after LOO filtering)
+    ├── Threshold_{T}_Promoter_{P}_list1_removingrecords.tsv
+    └── Threshold_{T}_Promoter_{P}/
+        ├── train_list1/    # LOO evaluation of list1 on training set
+        │   ├── overall_metrics.tsv
+        │   ├── per_variant_analysis.tsv
+        │   └── isolate_predictions.tsv
+        ├── train_list2/    # LOO evaluation of list2 on training set
+        └── test_list2/     # Evaluation of list2 on test set
 ```
+

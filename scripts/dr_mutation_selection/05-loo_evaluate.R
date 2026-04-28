@@ -46,7 +46,7 @@ results_dir          <- args[9]
 print(paste0("Drug: ", drug_name, ", threshold ", threshold, ", promoter ", promoter_region, "."))
 
 # Load per-variant leave-one-out results from the training set evaluation
-combo_dir    <- file.path(results_dir, drug_name, "Sens_analysis_75",
+combo_dir    <- file.path(results_dir, drug_name,
                           paste0("Threshold_", threshold, "_Promoter_", promoter_region))
 list1_result <- fread(file.path(combo_dir, "train_list1", "per_variant_analysis.tsv"))
 
@@ -165,14 +165,14 @@ setnames(final_list, c("variant", "grading", "position", "ref", "alt", "Event_nu
 
 fwrite(
   final_list,
-  file.path(results_dir, drug_name, "Sens_analysis_75",
+  file.path(results_dir, drug_name,
             paste0("Threshold_", threshold, "_Promoter_", promoter_region, "_list2.tsv")),
   col.names = TRUE, sep = "\t", quote = FALSE, na = NA
 )
 
 fwrite(
   removing_variant,
-  file.path(results_dir, drug_name, "Sens_analysis_75",
+  file.path(results_dir, drug_name,
             paste0("Threshold_", threshold, "_Promoter_", promoter_region, "_list1_removingrecords.tsv")),
   col.names = TRUE, sep = "\t", quote = FALSE, na = NA
 )
