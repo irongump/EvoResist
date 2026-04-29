@@ -92,7 +92,7 @@ Edit `config/config.yaml` before running.  Key options:
 | `stop_at` | `"all"` | Stop the pipeline at a specific step (see table above for valid step names) |
 | `input_type` | `"auto"` | Input data format: `auto`, `fastq`, or `sra` |
 | `fastq_dir` | *(none)* | **Required when `input_type: fastq`** — path to the directory containing pre-existing per-sample FASTQ files. Ignored for `sra` and `auto` modes. |
-| `lineage` | *(none — all)* | Process only the named lineage or list of lineages (e.g. `"Lineage1.1"` or `["Lineage1.1","Lineage2.3.4"]`). Each must correspond to a `<strain_ids_dir>/<lineage>_strain.txt` file. When omitted, all lineages are processed. |
+| `lineage` | *(none — all)* | Process only the named lineage or list of lineages (e.g. `"Lineage1.1.A"` or `["Lineage1.1.A","Lineage2.3.4"]`). Each must correspond to a `<strain_ids_dir>/<lineage>_strain.txt` file. When omitted, all lineages are processed. |
 
 ### Steps 7–8 (DR mutation selection)
 
@@ -102,7 +102,7 @@ Edit `config/config.yaml` before running.  Key options:
 | `snp_anno_dir` | *(required)* | Directory containing per-sample SNP annotation files named `{sample}.ano` (tab-separated, columns: position, ref, alt). **Must be set** when running steps 7–8. |
 | `indel_anno_dir` | *(required)* | Directory containing per-sample indel annotation files named `{sample}.indel.ano` (same format). **Must be set** when running steps 7–8. |
 | `all_indel_file` | `"data/all_indel_100k.txt.gz"` | Cohort-wide indel file used to build per-drug indel candidate lists. Accepts `.gz` compressed or plain text. |
-| `dr_convergent_snp_file` | *(step 5 output)* | Convergent SNP file for DR analysis. Defaults to `<outdir>/lineage_ann/all_ann_convergent_flt.txt` (step 5 output). Override to use a pre-existing file (e.g. `data/all_ann_convergent_flt_v3.txt.gz`). |
+| `dr_convergent_snp_file` | *(step 5 output)* | Convergent SNP file for DR analysis. Defaults to `<outdir>/lineage_ann/all_ann_convergent_flt.txt` (step 5 output). Override to use a pre-existing file (e.g. `data/all_ann_convergent_flt.txt.gz`). |
 
 `stop_at` accepts either the step number (`step1`–`step8`/`dr_prep`/`dr_selection`) or the rule name.  
 Valid `stop_at` values:
@@ -139,12 +139,12 @@ snakemake --cores 8 --configfile config/config.yaml --config input_type=sra
 snakemake --cores 8 --configfile config/config.yaml \
     --config input_type=fastq fastq_dir=/path/to/my/fastqs
 
-# Process only Lineage1.1 from existing FASTQ files:
+# Process only Lineage1.1.A from existing FASTQ files:
 snakemake --cores 8 --configfile config/config.yaml \
-    --config input_type=fastq fastq_dir=/path/to/my/fastqs lineage=Lineage1.1
+    --config input_type=fastq fastq_dir=/path/to/my/fastqs lineage=Lineage1.1.A
 
-# Process Lineage1.1 and Lineage2.3.4 (edit config.yaml for multi-value):
-#   lineage: ["Lineage1.1", "Lineage2.3.4"]
+# Process Lineage1.1.A and Lineage2.3.4 (edit config.yaml for multi-value):
+#   lineage: ["Lineage1.1.A", "Lineage2.3.4"]
 ```
 
 ---
