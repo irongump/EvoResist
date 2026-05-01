@@ -116,8 +116,8 @@ Edit `config/config.yaml` before running.  Key options:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `dr_results_dir` | `"dr_results"` | Base directory for DR mutation selection outputs |
-| `snp_anno_dir` | *(required)* | Directory containing per-sample SNP annotation files named `{sample}.ano` (tab-separated, columns: position, ref, alt). **Must be set** when running steps 7–8. |
-| `indel_anno_dir` | *(required)* | Directory containing per-sample indel annotation files named `{sample}.indel.ano` (same format). **Must be set** when running steps 7–8. |
+| `snp_anno_dir` | *(required)* | Directory containing per-sample SNP annotation files named `{sample}.ano` (tab-separated, columns: position, ref, alt). **Must be set** when running steps 8–9. |
+| `indel_anno_dir` | *(required)* | Directory containing per-sample indel annotation files named `{sample}.indel.ano` (same format). **Must be set** when running steps 8–9. |
 | `all_indel_file` | `"data/all_indel_100k.txt.gz"` | Cohort-wide indel file used to build per-drug indel candidate lists. Accepts `.gz` compressed or plain text. |
 | `dr_convergent_snp_file` | *(step 6 output)* | Convergent SNP file for DR analysis. Defaults to `<outdir>/lineage_ann/all_ann_convergent_flt.txt` (step 6 output). Override to use a pre-existing file (e.g. `data/all_ann_convergent_flt.txt.gz`). |
 
@@ -202,7 +202,7 @@ Before running steps 7–8, ensure the following files are present:
 
 ### Step 14 – final evaluation (manual)
 
-Step 8 requires curated final variant lists that are produced after reviewing the threshold / promoter sweep results from step 7. Run the evaluation manually using the helper scripts once the lists are ready:
+Step 14 requires curated final variant lists that are produced after reviewing the threshold / promoter sweep results from step 9. Run the evaluation manually using the helper scripts once the lists are ready:
 
 ```bash
 # Final evaluation on the full per-drug cohort
