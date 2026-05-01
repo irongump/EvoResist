@@ -1,25 +1,35 @@
 """
 EvoResist Snakemake Pipeline (v2.0)
 ====================================
-Leveraging Convergent Evolution to Prioritize Antibiotic Resistance
-Mutations in Mycobacterium tuberculosis.
+Evolution-Guided Prioritization of Drug Resistance Mutations Enhances
+Molecular Prediction of Tuberculosis Drug Susceptibility.
 
-Pipeline Steps:
-  1. SNP calling from FASTQ or SRA files (per sample)
-  2. Phylogenetic tree building with IQ-TREE (per lineage)
-  3. Branch mutation extraction from tree nodes (per lineage)
-  4. Ancestor mutation extraction (global)
-  5. Merge annotations and count convergent mutations (global)
-  6. GTR simulation for null distribution (global)
+Pipeline Steps (Steps 1–7: convergent evolution analysis; Steps 8–14: DR mutation selection):
+  1. snp_calling      - SNP calling from FASTQ or SRA files (per sample)
+  2. indel_calling    - INDEL calling from BAM files (per sample)
+  3. build_tree       - Phylogenetic tree building with IQ-TREE (per lineage/sublineage)
+  4. branch_mutations - Branch mutations extraction (within lineage/sublineage)
+  5. ancestor_mutations - Ancestor mutations extraction (prior to lineage/sublineage diversification)
+  6. merge_annotations / stat_convergent / filter_convergent - Count convergent mutations by codon
+  7. simulation       - GTR+Gamma simulation of mutations under a null distribution
+  8. dr_train_test_split  - Stratify 70/30 train-test for sensitivity analysis
+  9. dr_filter_variants   - Include convergent SNPs or indels from DR genes and promoter regions
+  10. dr_initial_list      - Build annotated initial candidate variant list per drug
+  11. dr_make_list1         - Apply threshold × promoter-length combination to generate list1
+  12. dr_loo_evaluate       - Leave-one-out evaluation of a variant list on train or test split
+  13. dr_make_list2         - Apply LOO filtering criteria to generate refined list2
+  14. (manual) pending      - Final evaluation and incremental gain analysis
 
 Key configuration options (config/config.yaml):
   outdir      - Base output directory (default: "output").
                 Recommended: single-level relative path so that shell scripts
                 using ../../ back-references resolve correctly.
   stop_at     - Stop after a specific step; valid values:
-                  step1/snp_calling, step2/build_tree,
-                  step3/branch_mutations, step4/ancestor_mutations,
-                  step5/merge_annotations, step6/simulation/all
+                  step1/snp_calling, step2/indel_calling,
+                  step3/build_tree, step4/branch_mutations,
+                  step5/ancestor_mutations, step6/merge_annotations,
+                  step7/simulation/all,
+                  step8/dr_prep, step9/dr_selection
   input_type  - Input data format: auto (default), fastq, or sra.
                 When set to "fastq", fastq_dir must also be set.
   fastq_dir   - Directory with pre-existing per-sample FASTQ files.
@@ -35,6 +45,8 @@ Usage:
   snakemake --cores <N> --configfile config/config.yaml --cluster "sbatch ..."
   # Run only up to SNP calling:
   snakemake --cores <N> --configfile config/config.yaml --config stop_at=step1
+  # Run only up to indel calling:
+  snakemake --cores <N> --configfile config/config.yaml --config stop_at=step2
   # Use a custom output directory:
   snakemake --cores <N> --configfile config/config.yaml --config outdir=results
 """
@@ -219,24 +231,28 @@ _SIMULATION_OUTPUTS = [
     f"{OUTDIR}/simulation/expected_null_distribution_GTR_Gamma.csv",
 ]
 
+_INDEL_OUTPUTS = expand(f"{OUTDIR}/indel/{{sample}}.INDEL.pass.vcf.gz", sample=ALL_SAMPLES)
+
 _STOP_STEP_MAP = {
     "step1":              expand(f"{OUTDIR}/snv/{{sample}}.snp", sample=ALL_SAMPLES),
     "snp_calling":        expand(f"{OUTDIR}/snv/{{sample}}.snp", sample=ALL_SAMPLES),
-    "step2":              expand(f"{OUTDIR}/lineage_tree/{{lineage}}_btp.treefile", lineage=LINEAGES),
+    "step2":              _INDEL_OUTPUTS,
+    "indel_calling":      _INDEL_OUTPUTS,
+    "step3":              expand(f"{OUTDIR}/lineage_tree/{{lineage}}_btp.treefile", lineage=LINEAGES),
     "build_tree":         expand(f"{OUTDIR}/lineage_tree/{{lineage}}_btp.treefile", lineage=LINEAGES),
-    "step3":              expand(f"{OUTDIR}/lineage_ann/{{lineage}}.ann", lineage=LINEAGES),
+    "step4":              expand(f"{OUTDIR}/lineage_ann/{{lineage}}.ann", lineage=LINEAGES),
     "branch_mutations":   expand(f"{OUTDIR}/lineage_ann/{{lineage}}.ann", lineage=LINEAGES),
-    "step4":              [f"{OUTDIR}/lineage_ann/ancestor.ann"],
+    "step5":              [f"{OUTDIR}/lineage_ann/ancestor.ann"],
     "ancestor_mutations": [f"{OUTDIR}/lineage_ann/ancestor.ann"],
-    "step5":              [f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt"],
+    "step6":              [f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt"],
     "merge_annotations":  [f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt"],
-    "step6":              _SIMULATION_OUTPUTS,
+    "step7":              _SIMULATION_OUTPUTS,
     "simulation":         _SIMULATION_OUTPUTS,
     "all":                _SIMULATION_OUTPUTS,
-    # DR mutation selection analysis (Step 7+)
-    "step7":              _DR_PREP_TARGETS,
+    # DR mutation selection analysis (Step 8+)
+    "step8":              _DR_PREP_TARGETS,
     "dr_prep":            _DR_PREP_TARGETS,
-    "step8":              _DR_SWEEP_TARGETS,
+    "step9":              _DR_SWEEP_TARGETS,
     "dr_selection":       _DR_SWEEP_TARGETS,
 }
 
@@ -247,7 +263,7 @@ if STOP_AT not in _STOP_STEP_MAP:
     )
 
 # Validate that DR analysis prerequisites are set when a DR stop is requested
-if STOP_AT in ("step7", "dr_prep", "step8", "dr_selection"):
+if STOP_AT in ("step8", "dr_prep", "step9", "dr_selection"):
     if not _DR_SNP_ANNO_DIR:
         raise ValueError(
             "config key 'snp_anno_dir' must be set when stop_at is a DR analysis step. "
@@ -285,6 +301,7 @@ rule snp_calling:
         snp=f"{OUTDIR}/snv/{{sample}}.snp",
         cfa=f"{OUTDIR}/cfa/{{sample}}.cfa",
         forup=f"{OUTDIR}/forup/{{sample}}.forup",
+        bam=f"{OUTDIR}/bam/{{sample}}.sort.bam",
     params:
         sample="{sample}",
         fq_dir=FQ_DIR,
@@ -463,7 +480,133 @@ rule snp_calling:
 
 
 # =============================================================================
-# Step 2: Build Phylogenetic Tree (per lineage)
+# Step 2: INDEL Calling (per sample)
+# =============================================================================
+# Calls INDELs from sorted BAM files using GATK3 local realignment and
+# UnifiedGenotyper, followed by bcftools normalization and QC filtering.
+# Produces per-sample INDEL VCF files (pass-filtered) in {OUTDIR}/indel/.
+
+rule indel_calling:
+    input:
+        bam=f"{OUTDIR}/bam/{{sample}}.sort.bam",
+        ref=config["reference"],
+    output:
+        vcf_pass=f"{OUTDIR}/indel/{{sample}}.INDEL.pass.vcf.gz",
+        vcf_pass_tbi=f"{OUTDIR}/indel/{{sample}}.INDEL.pass.vcf.gz.tbi",
+    params:
+        sample="{sample}",
+        indel_dir=f"{OUTDIR}/indel",
+        picard=config["picard_jar"],
+        gatk=config["gatk_jar"],
+    resources:
+        mem_mb=8000,
+    shell:
+        r"""
+        set -euo pipefail
+        sample={params.sample}
+        indel_dir={params.indel_dir}
+        ref={input.ref}
+        bam={input.bam}
+        picard={params.picard}
+        gatk={params.gatk}
+
+        mkdir -p "$indel_dir"
+
+        # QC thresholds
+        MAX_INDEL_LEN=50
+        MIN_DP=10
+        MIN_AF=0.75
+
+        # Intermediate BAM files
+        bam_filt="${{indel_dir}}/${{sample}}.filt.bam"
+        bam_rg="${{indel_dir}}/${{sample}}.RG.bam"
+        intervals="${{indel_dir}}/${{sample}}.intervals"
+        bam_rl="${{indel_dir}}/${{sample}}.RL.bam"
+
+        # VCF output files
+        vcf_raw="${{indel_dir}}/${{sample}}.INDEL.raw.vcf"
+        vcf_norm="${{indel_dir}}/${{sample}}.INDEL.norm.vcf.gz"
+        vcf_tags="${{indel_dir}}/${{sample}}.INDEL.norm.tags.vcf.gz"
+        vcf_pass="{output.vcf_pass}"
+
+        ###########################################################################
+        # 1) Filter BAM: remove unmapped reads (-F 4) and MAPQ=0 reads (-q 1)
+        ###########################################################################
+        samtools view -bF 4 -q 1 "$bam" > "$bam_filt"
+        samtools index "$bam_filt"
+
+        ###########################################################################
+        # 2) Add or replace read groups (required by GATK tools)
+        ###########################################################################
+        java -jar "$picard" AddOrReplaceReadGroups \
+            I="$bam_filt" O="$bam_rg" \
+            RGID=4 RGLB=lib1 RGPL=illumina RGPU=unit1 RGSM=20
+        samtools index "$bam_rg"
+
+        ###########################################################################
+        # 3) GATK3: identify realignment targets around indels
+        ###########################################################################
+        java -Xmx2g -jar "$gatk" \
+            -I "$bam_rg" -R "$ref" \
+            -T RealignerTargetCreator -maxInterval 20000 \
+            -o "$intervals"
+
+        ###########################################################################
+        # 4) GATK3: local realignment around indels
+        ###########################################################################
+        java -Xmx4g -jar "$gatk" \
+            -I "$bam_rg" -R "$ref" \
+            -T IndelRealigner -targetIntervals "$intervals" \
+            -o "$bam_rl"
+        samtools index "$bam_rl"
+
+        ###########################################################################
+        # 5) GATK3: call INDELs (UnifiedGenotyper)
+        ###########################################################################
+        java -Xmx4g -jar "$gatk" \
+            -T UnifiedGenotyper -nt 1 \
+            -R "$ref" -I "$bam_rl" \
+            -glm INDEL -o "$vcf_raw"
+
+        ###########################################################################
+        # 6) Normalize INDEL representation (left-align; split multiallelic)
+        ###########################################################################
+        bcftools norm -f "$ref" -m -both "$vcf_raw" -Oz -o "$vcf_norm"
+        bcftools index -t "$vcf_norm"
+
+        ###########################################################################
+        # 7) Add tags AF/AC/AN (computed from genotype fields)
+        ###########################################################################
+        bcftools +fill-tags "$vcf_norm" -Oz -o "$vcf_tags" -- -t AF,AC,AN
+        bcftools index -t "$vcf_tags"
+
+        ###########################################################################
+        # 8) QC filter:
+        #    - keep only INDELs
+        #    - indel length <= 50 bp
+        #    - FORMAT/DP >= 10  (per-sample depth)
+        #    - INFO/AF >= 0.75  (fixed/high-confidence variants)
+        ###########################################################################
+        bcftools view -i "TYPE='indel' && abs(strlen(REF)-strlen(ALT))<=${{MAX_INDEL_LEN}}" \
+            "$vcf_tags" -Ou \
+            | bcftools filter -i "FORMAT/DP>=${{MIN_DP}} && INFO/AF>=${{MIN_AF}}" \
+            -Oz -o "$vcf_pass"
+        bcftools index -t "$vcf_pass"
+
+        ###########################################################################
+        # 9) Cleanup intermediate BAM files
+        ###########################################################################
+        rm -f "$bam_filt" "$bam_filt.bai" \
+              "$bam_rg" "$bam_rg.bai" \
+              "$intervals" \
+              "$bam_rl" "$bam_rl.bai"
+
+        echo "INDEL calling complete for $sample."
+        """
+
+
+# =============================================================================
+# Step 3: Build Phylogenetic Tree (per lineage/sublineage)
 # =============================================================================
 # Collects SNP positions across all samples in a lineage, generates a
 # concatenated alignment, and builds a maximum-likelihood tree with IQ-TREE.
@@ -553,7 +696,7 @@ rule build_tree:
 
 
 # =============================================================================
-# Step 3: Branch Mutation Extraction (per lineage)
+# Step 4: Branch Mutation Extraction (within lineage/sublineage)
 # =============================================================================
 # Extracts mutations per branch/node from the phylogenetic tree and annotates
 # them using the MTBC translation scripts.
@@ -639,7 +782,7 @@ rule branch_mutations:
 
 
 # =============================================================================
-# Step 4: Ancestor Mutation Extraction (global)
+# Step 5: Ancestor Mutation Extraction (prior to lineage/sublineage diversification)
 # =============================================================================
 # Extracts and annotates mutations from ancestor nodes shared across lineages.
 
@@ -687,7 +830,7 @@ rule ancestor_mutations:
 
 
 # =============================================================================
-# Step 5: Merge Annotations and Count Convergent Mutations
+# Step 6: Merge Annotations and Count Convergent Mutations by Codon
 # =============================================================================
 # Merges all lineage and ancestor annotations, then counts convergent events.
 
@@ -740,7 +883,7 @@ rule filter_convergent:
 
 
 # =============================================================================
-# Step 6: GTR Simulation for Null Distribution
+# Step 7: GTR+Gamma Simulation of Mutations Under a Null Distribution
 # =============================================================================
 # Simulates convergent mutation counts under a GTR+Gamma model to generate
 # the null distribution for statistical testing.
@@ -768,9 +911,10 @@ rule simulation:
 
 
 # =============================================================================
-# Step 7a: DR – Train / test split (per drug)
+# Step 8: DR – Stratify 70/30 Train-Test Split per Drug
 # =============================================================================
-# Stratified 70/30 train-test split of the per-drug sample lists.
+# Stratified 70/30 train-test split of the per-drug sample lists for
+# sensitivity analysis to identify drug-specific convergent thresholds.
 
 rule dr_train_test_split:
     input:
@@ -789,10 +933,10 @@ rule dr_train_test_split:
 
 
 # =============================================================================
-# Step 7b: DR – Filter convergent variants to drug-relevant genomic regions
+# Step 9: DR – Filter Convergent Variants to Drug Resistance Genes and Promoter Regions
 # =============================================================================
-# Applies drug-specific genomic region filters to the convergent SNP and
-# indel files to generate drug-focused candidate variant lists.
+# Applies drug-specific genomic region filters to include convergent SNPs or
+# indels from drug resistance genes and promoter regions.
 
 rule dr_filter_variants:
     input:
@@ -863,7 +1007,7 @@ rule dr_filter_variants:
 
 
 # =============================================================================
-# Step 7c: DR – Build annotated initial candidate variant list (per drug)
+# Step 10: DR – Build Annotated Initial Candidate Variant List (per drug)
 # =============================================================================
 # Merges convergent SNPs and indels with WHO catalogue annotations, assigns
 # gene-body / promoter labels, and aggregates convergence event counts.
@@ -894,7 +1038,7 @@ rule dr_initial_list:
 
 
 # =============================================================================
-# Step 7d: DR – Generate list1 for a threshold × promoter combination
+# Step 11: DR – Apply Threshold × Promoter-Length Combination to Generate List1
 # =============================================================================
 # Applies convergence-event-number threshold and promoter-length filter to
 # the annotated initial candidate list to produce list1.
@@ -923,7 +1067,7 @@ rule dr_make_list1:
 
 
 # =============================================================================
-# Step 7e: DR – Leave-one-out evaluation of a variant list on a sample split
+# Step 12: DR – Leave-One-Out Evaluation of a Variant List on Train or Test Split
 # =============================================================================
 # Computes per-isolate predictions, overall metrics (sensitivity, specificity,
 # PPV, NPV with 95 % Wilson CIs), and per-variant leave-one-out deltas.
@@ -961,7 +1105,7 @@ rule dr_loo_evaluate:
 
 
 # =============================================================================
-# Step 7f: DR – Apply LOO filtering to produce list2 (per threshold × promoter)
+# Step 13: DR – Apply LOO Filtering Criteria to Generate Refined List2
 # =============================================================================
 # Reads per-variant leave-one-out results from the training-set evaluation of
 # list1 and removes variants whose removal improves combined sensitivity +

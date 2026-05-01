@@ -12,11 +12,14 @@ outdir: "output"
 # -- Pipeline control ---------------------------------------------------------
 # Stop the pipeline after a specific step. Valid values:
 #   step1 / snp_calling        - SNP calling from FASTQ or SRA files
-#   step2 / build_tree         - Phylogenetic tree building with IQ-TREE
-#   step3 / branch_mutations   - Branch mutation extraction per lineage
-#   step4 / ancestor_mutations - Ancestor mutation extraction (global)
-#   step5 / merge_annotations  - Merge annotations and count convergent mutations
-#   step6 / simulation / all   - GTR simulation for null distribution (full run)
+#   step2 / indel_calling      - INDEL calling from BAM files (per sample)
+#   step3 / build_tree         - Phylogenetic tree building with IQ-TREE
+#   step4 / branch_mutations   - Branch mutation extraction per lineage
+#   step5 / ancestor_mutations - Ancestor mutation extraction (global)
+#   step6 / merge_annotations  - Merge annotations and count convergent mutations
+#   step7 / simulation / all   - GTR simulation for null distribution (full run)
+#   step8 / dr_prep            - DR data preparation (train/test split, filtered candidates, initial lists)
+#   step9 / dr_selection       - Full DR sweep (list1→LOO→list2→train/test evaluation)
 stop_at: "all"
 
 # -- Input data type ----------------------------------------------------------
@@ -76,6 +79,10 @@ lineage_ancestor_file: "data/lineage_ancestor_nodes.csv"
 
 # -- External tools -----------------------------------------------------------
 varscan_jar: "scripts/VarScan.v2.3.9.jar"
+# Picard JAR for INDEL calling (Step 2). Download from https://github.com/broadinstitute/picard/releases
+picard_jar: "scripts/picard.jar"
+# GATK3 JAR for INDEL calling (Step 2). Requires GenomeAnalysisTK.jar (GATK 3.x)
+gatk_jar: "scripts/GenomeAnalysisTK.jar"
 
 # -- Simulation parameters ---------------------------------------------------
 num_simulations: 1000
@@ -86,18 +93,18 @@ threads_per_sample: 2
 threads_tree: 64
 threads_annotation: 24
 
-# -- DR mutation selection analysis (Step 7+) ---------------------------------
+# -- DR mutation selection analysis (Step 8+) ---------------------------------
 # Base directory for drug resistance mutation selection outputs.
 dr_results_dir: "dr_results"
 
 # Directory containing per-sample SNP annotation files (one file per sample,
 # named {sample}.ano with columns: position, ref, alt).
-# Required when running step7 / dr_selection.
+# Required when running step8 / dr_prep or step9 / dr_selection.
 snp_anno_dir: ""
 
 # Directory containing per-sample indel annotation files (one file per sample,
 # named {sample}.indel.ano with columns: position, ref, alt).
-# Required when running step7 / dr_selection.
+# Required when running step8 / dr_prep or step9 / dr_selection.
 indel_anno_dir: ""
 
 # All-cohort indel file used to build drug-specific indel candidate lists.
@@ -105,6 +112,6 @@ indel_anno_dir: ""
 all_indel_file: "data/all_indel_100k.txt.gz"
 
 # Convergent SNP file used to build drug-specific SNP candidate lists.
-# Defaults to the output of step 5 (filter_convergent rule).
+# Defaults to the output of step 6 (filter_convergent rule).
 # Override here to use a pre-existing file (e.g. data/all_ann_convergent_flt_v3.txt.gz).
 # dr_convergent_snp_file: "data/all_ann_convergent_flt_v3.txt.gz"
