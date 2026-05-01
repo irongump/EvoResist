@@ -1,28 +1,28 @@
 # EvoResist
 
-Leveraging Convergent Evolution to Prioritize Antibiotic Resistance Mutations in *Mycobacterium tuberculosis*.
+Evolution-Guided Prioritization of Drug Resistance Mutations Enhances Molecular Prediction of Tuberculosis Drug Susceptibility.
 
 ---
 
 ## Pipeline Overview
 
-The workflow consists of **8 steps** (Steps 1–6: convergent evolution analysis; Steps 7–8: DR mutation selection):
+The workflow consists of **13 steps** (Steps 1–6: convergent evolution analysis; Steps 7–13: DR mutation selection):
 
 | Step | Rule name(s) | Description |
 |------|-------------|-------------|
 | 1 | `snp_calling` | SNP calling from FASTQ or SRA files (per sample) |
-| 2 | `build_tree` | Phylogenetic tree building with IQ-TREE (per lineage) |
-| 3 | `branch_mutations` | Branch mutation extraction from tree nodes (per lineage) |
-| 4 | `ancestor_mutations` | Ancestor mutation extraction (global) |
-| 5 | `merge_annotations` → `stat_convergent` → `filter_convergent` | Merge annotations and count convergent mutations (global) |
-| 6 | `simulation` | GTR+Gamma simulation for null distribution (global) |
-| 7a | `dr_train_test_split` | Stratified 70/30 train-test split of per-drug sample lists |
-| 7b | `dr_filter_variants` | Filter convergent SNPs/indels to drug-relevant genomic regions |
-| 7c | `dr_initial_list` | Build annotated initial candidate variant list per drug |
-| 7d | `dr_make_list1` | Apply threshold × promoter-length combination to generate list1 |
-| 7e | `dr_loo_evaluate` | Leave-one-out evaluation of a variant list on train or test split |
-| 7f | `dr_make_list2` | Apply LOO filtering criteria to generate refined list2 |
-| 8 | *(manual)* | Final evaluation and incremental gain analysis using curated final lists |
+| 2 | `build_tree` | Phylogenetic tree building with IQ-TREE (per lineage/sublineage) |
+| 3 | `branch_mutations` | Branch mutations extraction (within lineage/sublineage)|
+| 4 | `ancestor_mutations` | Ancestor mutations extraction (prior to lineage/sublineage diversification) |
+| 5 | `merge_annotations` → `stat_convergent` → `filter_convergent` | Count convergent mutations by codon |
+| 6 | `simulation` | GTR+Gamma simulation of mutations under a null distribution |
+| 7 | `dr_train_test_split` | Stratify 70/30 train-test for sensitivity analysis to identify drug specific convergent threshold |
+| 8 | `dr_filter_variants` | Include convergent SNPs or indels from drug resistance genes and promoter regions |
+| 9 | `dr_initial_list` | Build annotated initial candidate variant list per drug |
+| 10 | `dr_make_list1` | Apply threshold × promoter-length combination to generate list1 |
+| 11 | `dr_loo_evaluate` | Leave-one-out evaluation of a variant list on train or test split |
+| 12 | `dr_make_list2` | Apply LOO filtering criteria to generate refined list2 |
+| 13 | *(manual) pending* | Final evaluation and incremental gain analysis using curated final lists |
 
 ---
 
