@@ -4,7 +4,7 @@ EvoResist Snakemake Pipeline (v2.0)
 Evolution-Guided Prioritization of Drug Resistance Mutations Enhances
 Molecular Prediction of Tuberculosis Drug Susceptibility.
 
-Pipeline Steps (Steps 1–7: convergent evolution analysis; Steps 8–14: DR mutation selection):
+Pipeline Steps (Steps 1–7: convergent evolution analysis; Steps 8–19: DR mutation selection):
   1. snp_calling      - SNP calling from FASTQ or SRA files (per sample)
   2. indel_calling    - INDEL calling from BAM files (per sample)
   3. build_tree       - Phylogenetic tree building with IQ-TREE (per lineage/sublineage)
@@ -18,7 +18,12 @@ Pipeline Steps (Steps 1–7: convergent evolution analysis; Steps 8–14: DR mut
   11. dr_make_list1         - Apply threshold × promoter-length combination to generate list1
   12. dr_loo_evaluate       - Leave-one-out evaluation of a variant list on train or test split
   13. dr_make_list2         - Apply LOO filtering criteria to generate refined list2
-  14. (manual) pending      - Final evaluation and incremental gain analysis
+  14. dr_select_best_threshold - Select best convergence threshold per drug from threshold sweep
+  15. dr_select_best_promoter  - Select best promoter length per drug from promoter-length sweep
+  16. dr_final_evaluate        - Final evaluation on full cohort (EvoResist, WHO G1+G2, WHO G1)
+  17. dr_gain_evaluation        - Incremental gain of EvoResist variants relative to WHO G1+G2 baseline
+  18. dr_lasso_analysis         - LASSO logistic regression for variant-phenotype association
+  19. dr_compare_who_evoresist  - Compare EvoResist vs WHO G1 and G1+G2 performance
 
 Key configuration options (config/config.yaml):
   outdir      - Base output directory (default: "output").
@@ -29,7 +34,10 @@ Key configuration options (config/config.yaml):
                   step3/build_tree, step4/branch_mutations,
                   step5/ancestor_mutations, step6/merge_annotations,
                   step7/simulation/all,
-                  step8/dr_prep, step9/dr_selection
+                  step8/dr_prep, step9/dr_selection,
+                  step10/dr_best_threshold, step11/dr_best_promoter,
+                  step12/dr_final_evaluate, step13/dr_lasso,
+                  step14/dr_compare
   input_type  - Input data format: auto (default), fastq, or sra.
                 When set to "fastq", fastq_dir must also be set.
   fastq_dir   - Directory with pre-existing per-sample FASTQ files.
@@ -39,6 +47,11 @@ Key configuration options (config/config.yaml):
                 Each value must correspond to a file named
                 <strain_ids_dir>/<lineage>_strain.txt.
                 When omitted all lineages in strain_ids_dir are processed.
+  dr_best_promoters - Per-drug best promoter length (bp) determined after the
+                promoter-length sweep (step9/dr_selection) and
+                step11/dr_best_promoter. Override per drug via:
+                  dr_best_promoters: {RIF: 400, INH: 300, ...}
+                Defaults to 500 for any drug not explicitly configured.
 
 Usage:
   snakemake --cores <N> --configfile config/config.yaml
@@ -176,6 +189,15 @@ _DR_BEST_THRESHOLDS = {
     "BDQ": 3, "AMK": 6, "STM": 5, "ETO": 4, "KAN": 6, "CAP": 6, "LZD": 5,
 }
 
+# Best promoter length (bp) per drug, determined after running the promoter-
+# length sweep (step9/dr_selection) and step11/dr_best_promoter.
+# Defaults to 500 (the threshold-sweep promoter value) for any drug not
+# explicitly set. Override via config: dr_best_promoters: {RIF: 400, ...}
+_DR_BEST_PROMOTERS_CFG = config.get("dr_best_promoters", {})
+_DR_BEST_PROMOTERS = {
+    d: int(_DR_BEST_PROMOTERS_CFG.get(d, 500)) for d in _DR_DRUGS
+}
+
 # Per-drug gene parameters used by 02/04/05 R scripts
 # Keys: genes, starts, ends, lof (LoF flags for 04/05), strands (for 02/04/05)
 _DR_GENE_PARAMS = {
@@ -222,6 +244,48 @@ _DR_SWEEP_TARGETS = _DR_PREP_TARGETS + [
     for d, t, p in _DR_ALL_COMBOS
 ]
 
+# Catalogue names used in the final evaluation step (EvoResist + two WHO baselines)
+_DR_CATALOGUES = ["EvoResist", "G1_2", "G1"]
+
+# Per-drug best-threshold selection outputs (step 10 / dr_best_threshold)
+_DR_BEST_THRESHOLD_TARGETS = [
+    f"{DR_DIR}/best_thresholds.tsv",
+    f"{DR_DIR}/best_thresholds.sh",
+]
+
+# Per-drug best-promoter selection outputs (step 11 / dr_best_promoter)
+_DR_BEST_PROMOTER_TARGETS = [
+    f"{DR_DIR}/best_promoters.tsv",
+    f"{DR_DIR}/best_promoters.sh",
+]
+
+# Final full-cohort evaluation outputs (step 12 / dr_final_evaluate)
+_DR_FINAL_EVAL_TARGETS = expand(
+    f"{DR_DIR}/{{drug}}/Final_Evaluate/{{catalogue}}/overall_metrics.tsv",
+    drug=_DR_DRUGS, catalogue=_DR_CATALOGUES,
+)
+
+# Incremental-gain outputs (step 13 / dr_gain_evaluation) — one file per drug
+_DR_GAIN_TARGETS = expand(
+    f"{DR_DIR}/{{drug}}/gain_EvoResist.txt",
+    drug=_DR_DRUGS,
+)
+
+# LASSO analysis outputs (step 13 / dr_lasso) — one summary file per drug
+_DR_LASSO_TARGETS = expand(
+    f"{DR_DIR}/{{drug}}/lasso/data_summary.tsv",
+    drug=_DR_DRUGS,
+)
+
+# WHO vs EvoResist comparison outputs (step 14 / dr_compare)
+_DR_COMPARE_TARGETS = [
+    f"{DR_DIR}/comparison/overall/comparison_formatted.tsv",
+    f"{DR_DIR}/comparison/by_lineage/comparison_formatted.tsv",
+    f"{DR_DIR}/comparison/by_lineage/comparison_stratified_formatted.tsv",
+    f"{DR_DIR}/comparison/by_pdst_method/comparison_formatted.tsv",
+    f"{DR_DIR}/comparison/by_pdst_method/comparison_stratified_formatted.tsv",
+]
+
 # =============================================================================
 # Map each stop_at value to its corresponding output files
 # =============================================================================
@@ -254,6 +318,18 @@ _STOP_STEP_MAP = {
     "dr_prep":            _DR_PREP_TARGETS,
     "step9":              _DR_SWEEP_TARGETS,
     "dr_selection":       _DR_SWEEP_TARGETS,
+    # Best-parameter selection (steps 10–11)
+    "step10":             _DR_SWEEP_TARGETS + _DR_BEST_THRESHOLD_TARGETS,
+    "dr_best_threshold":  _DR_SWEEP_TARGETS + _DR_BEST_THRESHOLD_TARGETS,
+    "step11":             _DR_SWEEP_TARGETS + _DR_BEST_THRESHOLD_TARGETS + _DR_BEST_PROMOTER_TARGETS,
+    "dr_best_promoter":   _DR_SWEEP_TARGETS + _DR_BEST_THRESHOLD_TARGETS + _DR_BEST_PROMOTER_TARGETS,
+    # Final evaluation, gain, LASSO, comparison (steps 12–14)
+    "step12":             _DR_FINAL_EVAL_TARGETS,
+    "dr_final_evaluate":  _DR_FINAL_EVAL_TARGETS,
+    "step13":             _DR_GAIN_TARGETS + _DR_LASSO_TARGETS,
+    "dr_lasso":           _DR_GAIN_TARGETS + _DR_LASSO_TARGETS,
+    "step14":             _DR_COMPARE_TARGETS,
+    "dr_compare":         _DR_COMPARE_TARGETS,
 }
 
 if STOP_AT not in _STOP_STEP_MAP:
@@ -263,7 +339,13 @@ if STOP_AT not in _STOP_STEP_MAP:
     )
 
 # Validate that DR analysis prerequisites are set when a DR stop is requested
-if STOP_AT in ("step8", "dr_prep", "step9", "dr_selection"):
+_DR_STEPS_REQUIRING_ANNO = (
+    "step8", "dr_prep", "step9", "dr_selection",
+    "step10", "dr_best_threshold", "step11", "dr_best_promoter",
+    "step12", "dr_final_evaluate", "step13", "dr_lasso",
+    "step14", "dr_compare",
+)
+if STOP_AT in _DR_STEPS_REQUIRING_ANNO:
     if not _DR_SNP_ANNO_DIR:
         raise ValueError(
             "config key 'snp_anno_dir' must be set when stop_at is a DR analysis step. "
@@ -1134,3 +1216,204 @@ rule dr_make_list2:
             {params.strands} {params.results_dir}
         """
 
+
+# =============================================================================
+# Step 14: DR – Select Best Convergence Threshold per Drug
+# =============================================================================
+# Reads list2 train/test metrics from the convergence-threshold sweep
+# (promoter = 500 bp, threshold 2–6) and selects the best threshold per drug
+# by maximising MCC on the test set. Writes best_thresholds.tsv (human-
+# readable summary) and best_thresholds.sh (bash-sourceable variable file).
+
+rule dr_select_best_threshold:
+    input:
+        metrics=expand(
+            f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{_DR_PROM_FIXED}/test_list2/overall_metrics.tsv",
+            drug=_DR_DRUGS, threshold=_DR_THRES_SWEEP,
+        ),
+    output:
+        tsv=f"{DR_DIR}/best_thresholds.tsv",
+        sh=f"{DR_DIR}/best_thresholds.sh",
+    params:
+        results_dir=DR_DIR,
+        promoter_fixed=_DR_PROM_FIXED,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/05-select_best_params.R \
+            --step threshold \
+            --results_dir {params.results_dir} \
+            --promoter_fixed {params.promoter_fixed}
+        """
+
+
+# =============================================================================
+# Step 15: DR – Select Best Promoter Length per Drug
+# =============================================================================
+# Reads list2 train/test metrics from the promoter-length sweep (best threshold
+# per drug, promoter 100–1000 bp) and selects the best promoter length per drug
+# by the same MCC criterion. Writes best_promoters.tsv and best_promoters.sh.
+
+rule dr_select_best_promoter:
+    input:
+        metrics=[
+            f"{DR_DIR}/{d}/Threshold_{_DR_BEST_THRESHOLDS[d]}_Promoter_{p}/test_list2/overall_metrics.tsv"
+            for d in _DR_DRUGS for p in _DR_PROM_SWEEP
+        ],
+    output:
+        tsv=f"{DR_DIR}/best_promoters.tsv",
+        sh=f"{DR_DIR}/best_promoters.sh",
+    params:
+        results_dir=DR_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/05-select_best_params.R \
+            --step promoter \
+            --results_dir {params.results_dir}
+        """
+
+
+# =============================================================================
+# Step 16: DR – Final Full-Cohort Evaluation
+# =============================================================================
+# Evaluates three variant catalogues (EvoResist final list, WHO G1+G2, WHO G1)
+# on the complete per-drug sample list using leave-one-out scoring. Wildcard
+# `catalogue` is one of: EvoResist, G1_2, G1.
+# For EvoResist, the variant file is the best threshold x promoter list2.
+# For WHO catalogues, pre-placed files in WHO_list/ are used.
+
+rule dr_final_evaluate:
+    input:
+        variants=lambda wc: (
+            f"{DR_DIR}/{wc.drug}/Threshold_{_DR_BEST_THRESHOLDS[wc.drug]}_Promoter_{_DR_BEST_PROMOTERS[wc.drug]}_list2.tsv"
+            if wc.catalogue == "EvoResist"
+            else f"{DR_DIR}/{wc.drug}/WHO_list/WHO_{wc.catalogue}_withcolnames.txt"
+        ),
+        id_list="data/{drug}_sample_list.txt",
+    output:
+        overall=f"{DR_DIR}/{{drug}}/Final_Evaluate/{{catalogue}}/overall_metrics.tsv",
+        per_var=f"{DR_DIR}/{{drug}}/Final_Evaluate/{{catalogue}}/per_variant_analysis.tsv",
+        preds=f"{DR_DIR}/{{drug}}/Final_Evaluate/{{catalogue}}/isolate_predictions.tsv",
+    params:
+        snp_dir=_DR_SNP_ANNO_DIR,
+        indel_dir=_DR_INDEL_ANNO_DIR,
+        outdir=lambda wc: f"{DR_DIR}/{wc.drug}/Final_Evaluate/{wc.catalogue}",
+    shell:
+        r"""
+        set -euo pipefail
+        python3 scripts/dr_mutation_selection/03-leave_one_out.py \
+            --variants_file {input.variants} \
+            --id_list_file  {input.id_list} \
+            --snp_dir       {params.snp_dir} \
+            --indel_dir     {params.indel_dir} \
+            --output_dir    {params.outdir}
+        """
+
+
+# =============================================================================
+# Step 17: DR – Incremental Gain Evaluation
+# =============================================================================
+# Ranks EvoResist-specific variants (List2 - WHO G1+G2) by their marginal
+# improvement in sensitivity, specificity, and PPV relative to the shared
+# baseline (List1 intersection List2). Produces a per-variant ranking TSV.
+
+rule dr_gain_evaluation:
+    input:
+        list1_variants=f"{DR_DIR}/{{drug}}/WHO_list/WHO_G1_2_withcolnames.txt",
+        list2_variants=lambda wc: (
+            f"{DR_DIR}/{wc.drug}/Threshold_{_DR_BEST_THRESHOLDS[wc.drug]}_Promoter_{_DR_BEST_PROMOTERS[wc.drug]}_list2.tsv"
+        ),
+        id_list="data/{drug}_sample_list.txt",
+    output:
+        f"{DR_DIR}/{{drug}}/gain_EvoResist.txt",
+    params:
+        snp_dir=_DR_SNP_ANNO_DIR,
+        indel_dir=_DR_INDEL_ANNO_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        python3 scripts/dr_mutation_selection/06-gain_evaluation.py \
+            --list1_variants_file {input.list1_variants} \
+            --list2_variants_file {input.list2_variants} \
+            --id_list_file        {input.id_list} \
+            --snp_dir             {params.snp_dir} \
+            --indel_dir           {params.indel_dir} \
+            --output_file         {output}
+        """
+
+
+# =============================================================================
+# Step 18: DR – LASSO Logistic Regression Analysis
+# =============================================================================
+# Fits a penalised logistic regression (L1) on the EvoResist final list with
+# lineage covariates and variant x lineage interaction terms. Cross-validates
+# regularisation strength, then performs an unpenalised refit on LASSO-selected
+# features, yielding per-variant ORs, p-values, and 95% CIs.
+
+rule dr_lasso_analysis:
+    input:
+        variants=lambda wc: (
+            f"{DR_DIR}/{wc.drug}/Threshold_{_DR_BEST_THRESHOLDS[wc.drug]}_Promoter_{_DR_BEST_PROMOTERS[wc.drug]}_list2.tsv"
+        ),
+        id_list="data/{drug}_sample_list.txt",
+    output:
+        data_summary=f"{DR_DIR}/{{drug}}/lasso/data_summary.tsv",
+        cv_perf=f"{DR_DIR}/{{drug}}/lasso/cv_performance.tsv",
+        model_coef=f"{DR_DIR}/{{drug}}/lasso/model_coefficients.tsv",
+        refit_coef=f"{DR_DIR}/{{drug}}/lasso/refit_coefficients.tsv",
+    params:
+        snp_dir=_DR_SNP_ANNO_DIR,
+        indel_dir=_DR_INDEL_ANNO_DIR,
+        outdir=lambda wc: f"{DR_DIR}/{wc.drug}/lasso",
+    shell:
+        r"""
+        set -euo pipefail
+        python3 scripts/dr_mutation_selection/07-lasso_analysis.py \
+            --variants_file {input.variants} \
+            --id_list_file  {input.id_list} \
+            --snp_dir       {params.snp_dir} \
+            --indel_dir     {params.indel_dir} \
+            --penalty l1 \
+            --output_dir    {params.outdir}
+        """
+
+
+# =============================================================================
+# Step 19: DR – Compare EvoResist vs WHO Performance
+# =============================================================================
+# Computes sensitivity, specificity, PPV, and NPV for EvoResist, WHO G1+G2,
+# and WHO G1 across all 13 drugs. Runs three analyses: overall, stratified by
+# Lineage, and stratified by pdst_method2. McNemar p-values are BH-adjusted.
+
+rule dr_compare_who_evoresist:
+    input:
+        final_evals=expand(
+            f"{DR_DIR}/{{drug}}/Final_Evaluate/{{catalogue}}/overall_metrics.tsv",
+            drug=_DR_DRUGS, catalogue=_DR_CATALOGUES,
+        ),
+    output:
+        overall=f"{DR_DIR}/comparison/overall/comparison_formatted.tsv",
+        by_lineage=f"{DR_DIR}/comparison/by_lineage/comparison_formatted.tsv",
+        by_lineage_strat=f"{DR_DIR}/comparison/by_lineage/comparison_stratified_formatted.tsv",
+        by_pdst=f"{DR_DIR}/comparison/by_pdst_method/comparison_formatted.tsv",
+        by_pdst_strat=f"{DR_DIR}/comparison/by_pdst_method/comparison_stratified_formatted.tsv",
+    params:
+        results_dir=DR_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/08-compare_who_evoresist.R \
+            {params.results_dir} \
+            {params.results_dir}/comparison/overall
+
+        Rscript scripts/dr_mutation_selection/08-compare_who_evoresist.R \
+            {params.results_dir} \
+            {params.results_dir}/comparison/by_lineage \
+            Lineage
+
+        Rscript scripts/dr_mutation_selection/08-compare_who_evoresist.R \
+            {params.results_dir} \
+            {params.results_dir}/comparison/by_pdst_method \
+            pdst_method2
+        """

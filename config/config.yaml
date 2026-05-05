@@ -19,7 +19,12 @@ outdir: "output"
 #   step6 / merge_annotations  - Merge annotations and count convergent mutations
 #   step7 / simulation / all   - GTR simulation for null distribution (full run)
 #   step8 / dr_prep            - DR data preparation (train/test split, filtered candidates, initial lists)
-#   step9 / dr_selection       - Full DR sweep (list1→LOO→list2→train/test evaluation)
+#   step9 / dr_selection       - Full DR sweep (list1→LOO→list2→train/test eval; threshold + promoter)
+#   step10 / dr_best_threshold - Select best convergence threshold per drug from sweep
+#   step11 / dr_best_promoter  - Select best promoter length per drug from sweep
+#   step12 / dr_final_evaluate - Final evaluation on full cohort (EvoResist, WHO G1+G2, WHO G1)
+#   step13 / dr_lasso          - Incremental gain evaluation + LASSO logistic regression
+#   step14 / dr_compare        - Compare EvoResist vs WHO performance (overall + stratified)
 stop_at: "all"
 
 # -- Input data type ----------------------------------------------------------
@@ -96,6 +101,26 @@ threads_annotation: 24
 # -- DR mutation selection analysis (Step 8+) ---------------------------------
 # Base directory for drug resistance mutation selection outputs.
 dr_results_dir: "dr_results"
+
+# Per-drug best promoter length (bp) for the final evaluation and LASSO steps.
+# Determined by running step11 / dr_best_promoter (05-select_best_params.R
+# --step promoter) after the promoter-length sweep (step9 / dr_selection).
+# Update the values below once the sweep results are available.
+# Any drug not listed here defaults to 500 bp.
+# dr_best_promoters:
+#   RIF: 400
+#   INH: 300
+#   EMB: 500
+#   PZA: 500
+#   LFX: 600
+#   MFX: 600
+#   BDQ: 400
+#   AMK: 500
+#   STM: 500
+#   ETO: 500
+#   KAN: 500
+#   CAP: 500
+#   LZD: 500
 
 # Directory containing per-sample SNP annotation files (one file per sample,
 # named {sample}.ano with columns: position, ref, alt).

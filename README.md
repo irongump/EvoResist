@@ -6,7 +6,7 @@ Evolution-Guided Prioritization of Drug Resistance Mutations Enhances Molecular 
 
 ## Pipeline Overview
 
-The workflow consists of **14 steps** (Steps 1–7: convergent evolution analysis; Steps 8–14: DR mutation selection):
+The workflow consists of **19 steps** (Steps 1–7: convergent evolution analysis; Steps 8–19: DR mutation selection):
 
 | Step | Rule name(s) | Description |
 |------|-------------|-------------|
@@ -23,7 +23,12 @@ The workflow consists of **14 steps** (Steps 1–7: convergent evolution analysi
 | 11 | `dr_make_list1` | Apply threshold × promoter-length combination to generate list1 |
 | 12 | `dr_loo_evaluate` | Leave-one-out evaluation of a variant list on train or test split |
 | 13 | `dr_make_list2` | Apply LOO filtering criteria to generate refined list2 |
-| 14 | *(manual) pending* | Final evaluation and incremental gain analysis using curated final lists |
+| 14 | `dr_select_best_threshold` | Select best convergence threshold per drug from threshold sweep (maximise MCC on test set) |
+| 15 | `dr_select_best_promoter` | Select best promoter length per drug from promoter-length sweep (maximise MCC on test set) |
+| 16 | `dr_final_evaluate` | Final evaluation on full cohort for EvoResist, WHO G1+G2, and WHO G1 catalogues |
+| 17 | `dr_gain_evaluation` | Incremental gain of EvoResist variants relative to WHO G1+G2 baseline |
+| 18 | `dr_lasso_analysis` | LASSO logistic regression for variant-phenotype association adjusted for lineage |
+| 19 | `dr_compare_who_evoresist` | Compare EvoResist vs WHO G1 and G1+G2 performance (overall and stratified) |
 
 ---
 
@@ -116,12 +121,13 @@ Edit `config/config.yaml` before running.  Key options:
 | Option | Default | Description |
 |--------|---------|-------------|
 | `dr_results_dir` | `"dr_results"` | Base directory for DR mutation selection outputs |
-| `snp_anno_dir` | *(required)* | Directory containing per-sample SNP annotation files named `{sample}.ano` (tab-separated, columns: position, ref, alt). **Must be set** when running steps 8–9. |
-| `indel_anno_dir` | *(required)* | Directory containing per-sample indel annotation files named `{sample}.indel.ano` (same format). **Must be set** when running steps 8–9. |
+| `snp_anno_dir` | *(required)* | Directory containing per-sample SNP annotation files named `{sample}.ano` (tab-separated, columns: position, ref, alt). **Must be set** when running steps 8–19. |
+| `indel_anno_dir` | *(required)* | Directory containing per-sample indel annotation files named `{sample}.indel.ano` (same format). **Must be set** when running steps 8–19. |
 | `all_indel_file` | `"data/all_indel_100k.txt.gz"` | Cohort-wide indel file used to build per-drug indel candidate lists. Accepts `.gz` compressed or plain text. |
 | `dr_convergent_snp_file` | *(step 6 output)* | Convergent SNP file for DR analysis. Defaults to `<outdir>/lineage_ann/all_ann_convergent_flt.txt` (step 6 output). Override to use a pre-existing file (e.g. `data/all_ann_convergent_flt.txt.gz`). |
+| `dr_best_promoters` | *(500 for all drugs)* | Per-drug best promoter length (bp) for final evaluation and LASSO steps. Determined after running step 11 (`dr_best_promoter`). Override per drug as a YAML dict (e.g. `{RIF: 400, INH: 300}`). |
 
-`stop_at` accepts either the step number (`step1`–`step9`/`dr_prep`/`dr_selection`) or the rule name.  
+`stop_at` accepts either the step number (`step1`–`step14`/`dr_prep`/`dr_selection`/…) or the rule name.  
 Valid `stop_at` values:
 
 | Value | Alias | What is produced |
@@ -135,6 +141,11 @@ Valid `stop_at` values:
 | `step7` | `simulation` / `all` | GTR simulation null distribution |
 | `step8` | `dr_prep` | DR data preparation (train/test split, filtered candidates, initial lists) |
 | `step9` | `dr_selection` | Full DR sweep: list1→LOO→list2→train/test evaluation for all threshold × promoter combinations |
+| `step10` | `dr_best_threshold` | Best-threshold selection files (`best_thresholds.tsv`, `best_thresholds.sh`) |
+| `step11` | `dr_best_promoter` | Best-promoter selection files (`best_promoters.tsv`, `best_promoters.sh`) |
+| `step12` | `dr_final_evaluate` | Final full-cohort evaluation for EvoResist, WHO G1+G2, and WHO G1 |
+| `step13` | `dr_lasso` | Incremental-gain ranking + LASSO logistic regression outputs |
+| `step14` | `dr_compare` | WHO vs EvoResist comparison tables (overall + stratified) |
 
 `input_type` values:
 - `auto` – look for FASTQ files in `<outdir>/fastq/`; if absent, convert from SRA into the same directory
@@ -190,42 +201,47 @@ snakemake --cores <N> --configfile config/config.yaml \
 
 ### DR analysis – required data files
 
-Before running steps 7–8, ensure the following files are present:
+Before running steps 8–19, ensure the following files are present:
 
 | File | Description |
 |------|-------------|
 | `data/{drug}_sample_list.txt` | Per-drug sample list with columns `Run` (sample ID) and `pheno` (R/S phenotype). One file per drug (RIF, INH, EMB, PZA, LFX, MFX, BDQ, AMK, STM, ETO, KAN, CAP, LZD). |
 | `{dr_results_dir}/{drug}/WHO_list/WHO_list_allGroup.txt` | WHO variant catalogue for each drug (headerless TSV). Must be placed in the correct subdirectory before running `dr_initial_list`. |
+| `{dr_results_dir}/{drug}/WHO_list/WHO_G1_2_withcolnames.txt` | WHO Grade 1+2 variant list with column headers. Required for `dr_final_evaluate`, `dr_gain_evaluation`, and `dr_compare_who_evoresist`. |
+| `{dr_results_dir}/{drug}/WHO_list/WHO_G1_withcolnames.txt` | WHO Grade 1 variant list with column headers. Required for `dr_final_evaluate` and `dr_compare_who_evoresist`. |
 | `data/all_indel_100k.txt.gz` | Cohort-wide indel file (configurable via `all_indel_file`). |
 | Per-sample SNP files | Files named `{sample}.ano` in the directory set by `snp_anno_dir`. |
 | Per-sample indel files | Files named `{sample}.indel.ano` in the directory set by `indel_anno_dir`. |
 
-### Step 14 – final evaluation (manual)
+### Steps 14–19 – automated final analysis
 
-Step 14 requires curated final variant lists that are produced after reviewing the threshold / promoter sweep results from step 9. Run the evaluation manually using the helper scripts once the lists are ready:
+After the full DR sweep (step 9 / `dr_selection`), the remaining steps run automatically via Snakemake:
+
+**Step 14 – select best threshold** (`stop_at=step10` / `dr_best_threshold`):
 
 ```bash
-# Final evaluation on the full per-drug cohort
-for drug in RIF INH EMB PZA LFX MFX BDQ AMK STM ETO KAN CAP LZD; do
-    python3 scripts/dr_mutation_selection/03-leave_one_out.py \
-        --variants_file dr_results/${drug}/EvoResist_Final_list.tsv \
-        --id_list_file  data/${drug}_sample_list.txt \
-        --snp_dir       /path/to/snp_anno \
-        --indel_dir     /path/to/indel_anno \
-        --output_dir    dr_results/${drug}/Final_Evaluate/EvoResist/
-done
-
-# Incremental gain relative to WHO G1+G2
-for drug in RIF INH EMB PZA LFX MFX BDQ AMK STM ETO KAN CAP LZD; do
-    python3 scripts/dr_mutation_selection/06-gain_evaluation.py \
-        --list1_variants_file dr_results/${drug}/WHO_G1_2_withcolnames.txt \
-        --list2_variants_file dr_results/${drug}/EvoResist_Final_list.tsv \
-        --id_list_file        data/${drug}_sample_list.txt \
-        --snp_dir             /path/to/snp_anno \
-        --indel_dir           /path/to/indel_anno \
-        --output_file         dr_results/${drug}/gain_EvoResist.txt
-done
+snakemake --cores <N> --configfile config/config.yaml --config stop_at=dr_best_threshold
+# Produces: dr_results/best_thresholds.tsv  and  dr_results/best_thresholds.sh
 ```
+
+The best thresholds are already hardcoded in `Snakefile` (`_DR_BEST_THRESHOLDS`). The rule writes the selection report but the hardcoded values drive the promoter sweep in step 9.
+
+**Step 15 – select best promoter** (`stop_at=step11` / `dr_best_promoter`):
+
+```bash
+snakemake --cores <N> --configfile config/config.yaml --config stop_at=dr_best_promoter
+# Produces: dr_results/best_promoters.tsv  and  dr_results/best_promoters.sh
+```
+
+After this step, update `dr_best_promoters` in `config/config.yaml` with the values from `best_promoters.tsv` before running steps 16–19.
+
+**Steps 16–19 – final evaluation, gain, LASSO, comparison** (`stop_at=dr_compare`):
+
+```bash
+snakemake --cores <N> --configfile config/config.yaml --config stop_at=dr_compare
+```
+
+This requires `dr_best_promoters` to be configured and the WHO catalogue files (`WHO_G1_2_withcolnames.txt`, `WHO_G1_withcolnames.txt`) to be present in each `{dr_results_dir}/{drug}/WHO_list/` directory.
 
 ---
 
@@ -263,5 +279,31 @@ done
         │   └── isolate_predictions.tsv
         ├── train_list2/    # LOO evaluation of list2 on training set
         └── test_list2/     # Evaluation of list2 on test set
+├── best_thresholds.tsv         # Best convergence threshold per drug (step 14)
+├── best_thresholds.sh          # Bash-sourceable threshold variables
+├── best_promoters.tsv          # Best promoter length per drug (step 15)
+├── best_promoters.sh           # Bash-sourceable promoter variables
+└── {drug}/
+    ├── Final_Evaluate/
+    │   ├── EvoResist/          # Full-cohort evaluation of EvoResist final list (step 16)
+    │   │   ├── overall_metrics.tsv
+    │   │   ├── per_variant_analysis.tsv
+    │   │   └── isolate_predictions.tsv
+    │   ├── G1_2/               # Full-cohort evaluation of WHO G1+G2 (step 16)
+    │   └── G1/                 # Full-cohort evaluation of WHO G1 (step 16)
+    ├── gain_EvoResist.txt      # Incremental gain ranking vs WHO G1+G2 (step 17)
+    └── lasso/                  # LASSO logistic regression outputs (step 18)
+        ├── data_summary.tsv
+        ├── cv_performance.tsv
+        ├── model_coefficients.tsv
+        └── refit_coefficients.tsv
+comparison/                     # WHO vs EvoResist comparison (step 19)
+├── overall/
+│   └── comparison_formatted.tsv
+├── by_lineage/
+│   ├── comparison_formatted.tsv
+│   └── comparison_stratified_formatted.tsv
+└── by_pdst_method/
+    ├── comparison_formatted.tsv
+    └── comparison_stratified_formatted.tsv
 ```
-
