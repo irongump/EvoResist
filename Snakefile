@@ -416,14 +416,14 @@ rule snp_calling:
             samtools merge "$bamm" "$bamp" "$bams"
             samtools sort "$bamm" -o "$sortbam"
             samtools index "$sortbam"
-            samtools mpileup -q 40 -Q 30 -ABOf "$ref" "$sortbam" > "$pileup"
+            samtools mpileup -q 30 -Q 30 -ABOf "$ref" "$sortbam" > "$pileup"
 
             java -jar "$varscan" mpileup2snp "$pileup" \
                 --min-coverage 10 --min-reads2 4 --min-avg-qual 30 \
-                --min-var-freq 0.01 --min-freq-for-hom 0.9 \
+                --min-var-freq 0.01 --min-freq-for-hom 0.75 \
                 --p-value 99e-02 --strand-filter 0 > "$var"
             java -jar "$varscan" mpileup2cns "$pileup" \
-                --min-coverage 10 --min-avg-qual 30 --min-var-freq 0.9 \
+                --min-coverage 10 --min-avg-qual 30 --min-var-freq 0.75 \
                 --min-reads2 4 --strand-filter 0 > "$cns"
 
             python scripts/remove_low_ebr.py "$low_ebr" "$var" > "$ppe"
@@ -452,14 +452,14 @@ rule snp_calling:
             samtools view -bhSt "${{ref}}.fai" "$samf" -o "$bamf"
             samtools sort "$bamf" -o "$sortbam"
             samtools index "$sortbam"
-            samtools mpileup -q 40 -Q 30 -ABOf "$ref" "$sortbam" > "$pileup"
+            samtools mpileup -q 30 -Q 30 -ABOf "$ref" "$sortbam" > "$pileup"
 
             java -jar "$varscan" mpileup2snp "$pileup" \
                 --min-coverage 10 --min-reads2 4 --min-avg-qual 30 \
-                --min-var-freq 0.01 --min-freq-for-hom 0.9 \
+                --min-var-freq 0.01 --min-freq-for-hom 0.75 \
                 --p-value 99e-02 --strand-filter 0 > "$var"
             java -jar "$varscan" mpileup2cns "$pileup" \
-                --min-coverage 10 --min-avg-qual 30 --min-var-freq 0.9 \
+                --min-coverage 10 --min-avg-qual 30 --min-var-freq 0.75 \
                 --min-reads2 4 --strand-filter 0 > "$cns"
 
             python scripts/remove_low_ebr.py "$low_ebr" "$var" > "$ppe"

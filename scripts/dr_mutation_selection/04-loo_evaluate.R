@@ -142,11 +142,6 @@ final_list <- rbindlist(list(
   safe_select(indels_LoF,             output_list_cols)
 ), use.names = TRUE, fill = TRUE)
 
-removing_variant <- rbindlist(list(
-  safe_select(SNPs_selection_NOTpass,   c(output_list_cols, "Delta_Sensitivity", "Delta_Specificity", "R_count", "S_count")),
-  safe_select(indels_selection_NOTpass, c(output_list_cols, "Delta_Sensitivity", "Delta_Specificity", "R_count", "S_count"))
-), use.names = TRUE, fill = TRUE)
-
 # Expert overrides
 if (drug_name == "RIF") {
   extra <- list1_result[Position == 761095 & Ref == "T" & Alt == "C", ..output_list_cols]
@@ -167,12 +162,5 @@ fwrite(
   final_list,
   file.path(results_dir, drug_name,
             paste0("Threshold_", threshold, "_Promoter_", promoter_region, "_list2.tsv")),
-  col.names = TRUE, sep = "\t", quote = FALSE, na = NA
-)
-
-fwrite(
-  removing_variant,
-  file.path(results_dir, drug_name,
-            paste0("Threshold_", threshold, "_Promoter_", promoter_region, "_list1_removingrecords.tsv")),
   col.names = TRUE, sep = "\t", quote = FALSE, na = NA
 )

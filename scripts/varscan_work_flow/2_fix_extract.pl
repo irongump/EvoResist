@@ -5,7 +5,7 @@ while(<>){
 chomp;
 @a=split "\t",$_;
 $a[4]=~s/%//;
-if($a[4]>=90){
+if($a[4]>=75){
 print "$_\n";
 }
 }

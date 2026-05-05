@@ -4,13 +4,16 @@
 # stratified by phenotype (R/S) so that resistance prevalence is
 # preserved in both partitions.
 #
+# IDs with conflicting phenotype entries (same Run mapped to both R and S)
+# are removed before splitting.
+#
 # Usage (called from pipeline.sh):
 #   Rscript ./01-train_test_split.R <sample_list_file> <output_dir>
 #
 # Arguments:
 #   sample_list_file  Path to the tab-separated sample list, e.g.
 #                     ./data/RIF_sample_list.txt
-#                     Required columns: sample_id, pheno
+#                     Required columns: Run, pheno
 #   output_dir        Directory where train_70.txt and test_30.txt
 #                     will be written, e.g. <RESULTS_DIR>/RIF/id/
 #
@@ -21,7 +24,7 @@
 library(data.table)
 
 # ── Arguments ────────────────────────────────────────────────────────────────
-args        <- commandArgs(trailingOnly = TRUE)
+args <- commandArgs(trailingOnly = TRUE)
 
 if (length(args) < 2) {
   stop("Usage: Rscript 01-train_test_split.R <sample_list_file> <output_dir>")
@@ -36,6 +39,19 @@ set.seed(20260330)
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 id_list <- fread(sample_list_file, header = TRUE, sep = "\t")
+
+# ── Remove IDs with inconsistent phenotypes ───────────────────────────────────
+# If the same Run appears with both R and S entries, it is ambiguous and
+# excluded from both train and test sets before splitting.
+pheno_per_id <- id_list[, .(n_pheno = uniqueN(pheno)), by = Run]
+inconsistent <- pheno_per_id[n_pheno > 1, Run]
+
+if (length(inconsistent) > 0) {
+  id_list <- id_list[!Run %in% inconsistent]
+}
+
+# Deduplicate: keep one row per Run (in case of harmless exact duplicates)
+id_list <- unique(id_list, by = "Run")
 
 # ── Stratified split by phenotype ────────────────────────────────────────────
 id_list[, row_id := .I]
@@ -60,4 +76,5 @@ fwrite(train_dt, file.path(output_dir, "train_70.txt"),
 fwrite(test_dt, file.path(output_dir, "test_30.txt"),
        sep = "\t", quote = FALSE, na = NA, col.names = TRUE, row.names = FALSE)
 
-message("Done: ", nrow(train_dt), " train / ", nrow(test_dt), " test samples written to ", output_dir)
+message("Done: ", nrow(train_dt), " train / ", nrow(test_dt),
+        " test samples written to ", output_dir)
