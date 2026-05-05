@@ -203,21 +203,23 @@ snakemake --cores <N> --configfile config/config.yaml \
 
 Before running steps 8–19, ensure the following files are present:
 
-| File | Description |
-|------|-------------|
-| `data/{drug}_sample_list.txt` | Per-drug sample list with columns `Run` (sample ID) and `pheno` (R/S phenotype). One file per drug (RIF, INH, EMB, PZA, LFX, MFX, BDQ, AMK, STM, ETO, KAN, CAP, LZD). |
-| `{dr_results_dir}/{drug}/WHO_list/WHO_list_allGroup.txt` | WHO variant catalogue for each drug (headerless TSV). Must be placed in the correct subdirectory before running `dr_initial_list`. |
-| `{dr_results_dir}/{drug}/WHO_list/WHO_G1_2_withcolnames.txt` | WHO Grade 1+2 variant list with column headers. Required for `dr_final_evaluate`, `dr_gain_evaluation`, and `dr_compare_who_evoresist`. |
-| `{dr_results_dir}/{drug}/WHO_list/WHO_G1_withcolnames.txt` | WHO Grade 1 variant list with column headers. Required for `dr_final_evaluate` and `dr_compare_who_evoresist`. |
-| `data/all_indel_100k.txt.gz` | Cohort-wide indel file (configurable via `all_indel_file`). |
-| Per-sample SNP files | Files named `{sample}.ano` in the directory set by `snp_anno_dir`. |
-| Per-sample indel files | Files named `{sample}.indel.ano` in the directory set by `indel_anno_dir`. |
+| File | Required from step | Description |
+|------|-------------------|-------------|
+| `data/{drug}_sample_list.txt` | 8 | Per-drug sample list with columns `Run` (sample ID) and `pheno` (R/S phenotype). One file per drug (RIF, INH, EMB, PZA, LFX, MFX, BDQ, AMK, STM, ETO, KAN, CAP, LZD). |
+| `{dr_results_dir}/{drug}/WHO_list/WHO_list_allGroup.txt` | 10 | WHO variant catalogue for each drug (headerless TSV). Must be placed in the correct subdirectory before running `dr_initial_list`. |
+| `{dr_results_dir}/{drug}/WHO_list/WHO_G1_2_withcolnames.txt` | 16 | WHO Grade 1+2 variant list with column headers. Required for `dr_final_evaluate`, `dr_gain_evaluation`, and `dr_compare_who_evoresist`. |
+| `{dr_results_dir}/{drug}/WHO_list/WHO_G1_withcolnames.txt` | 16 | WHO Grade 1 variant list with column headers. Required for `dr_final_evaluate` and `dr_compare_who_evoresist`. |
+| `data/all_indel_100k.txt.gz` | 9 | Cohort-wide indel file (configurable via `all_indel_file`). |
+| Per-sample SNP files | 8 | Files named `{sample}.ano` in the directory set by `snp_anno_dir`. |
+| Per-sample indel files | 8 | Files named `{sample}.indel.ano` in the directory set by `indel_anno_dir`. |
 
 ### Steps 14–19 – automated final analysis
 
-After the full DR sweep (step 9 / `dr_selection`), the remaining steps run automatically via Snakemake:
+After the full DR sweep (step 9 / `dr_selection`), the remaining steps run automatically via Snakemake.
+Note: the pipeline overview table above numbers all Snakemake rules as steps 1–19; the `stop_at`
+values below (`step10`–`step14`) group several of those rules into logical checkpoints.
 
-**Step 14 – select best threshold** (`stop_at=step10` / `dr_best_threshold`):
+**Select best threshold** (`stop_at=dr_best_threshold` / `step10`):
 
 ```bash
 snakemake --cores <N> --configfile config/config.yaml --config stop_at=dr_best_threshold
@@ -226,16 +228,16 @@ snakemake --cores <N> --configfile config/config.yaml --config stop_at=dr_best_t
 
 The best thresholds are already hardcoded in `Snakefile` (`_DR_BEST_THRESHOLDS`). The rule writes the selection report but the hardcoded values drive the promoter sweep in step 9.
 
-**Step 15 – select best promoter** (`stop_at=step11` / `dr_best_promoter`):
+**Select best promoter** (`stop_at=dr_best_promoter` / `step11`):
 
 ```bash
 snakemake --cores <N> --configfile config/config.yaml --config stop_at=dr_best_promoter
 # Produces: dr_results/best_promoters.tsv  and  dr_results/best_promoters.sh
 ```
 
-After this step, update `dr_best_promoters` in `config/config.yaml` with the values from `best_promoters.tsv` before running steps 16–19.
+After this step, update `dr_best_promoters` in `config/config.yaml` with the values from `best_promoters.tsv` before running the final analysis steps.
 
-**Steps 16–19 – final evaluation, gain, LASSO, comparison** (`stop_at=dr_compare`):
+**Final evaluation, gain, LASSO, comparison** (`stop_at=dr_compare` / `step14`):
 
 ```bash
 snakemake --cores <N> --configfile config/config.yaml --config stop_at=dr_compare

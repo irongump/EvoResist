@@ -19,7 +19,7 @@ outdir: "output"
 #   step6 / merge_annotations  - Merge annotations and count convergent mutations
 #   step7 / simulation / all   - GTR simulation for null distribution (full run)
 #   step8 / dr_prep            - DR data preparation (train/test split, filtered candidates, initial lists)
-#   step9 / dr_selection       - Full DR sweep (list1→LOO→list2→train/test eval; threshold + promoter)
+#   step9 / dr_selection       - Full DR sweep (list1→LOO→list2→train/test evaluation; threshold + promoter)
 #   step10 / dr_best_threshold - Select best convergence threshold per drug from sweep
 #   step11 / dr_best_promoter  - Select best promoter length per drug from sweep
 #   step12 / dr_final_evaluate - Final evaluation on full cohort (EvoResist, WHO G1+G2, WHO G1)
