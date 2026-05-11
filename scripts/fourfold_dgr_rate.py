@@ -4,12 +4,16 @@ import pandas as pd
 from multiprocessing import Pool, cpu_count
 from tqdm import tqdm
 from collections import Counter
+import sys
 
 # ==========================================
 # 1. Core Parameters and Global Variables
 # ==========================================
 # Directory containing SNP annotation files
-INPUT_DIR = "../ano/"
+INPUT_DIR = sys.argv[1] # default "output/lineage_ann"
+if not os.path.isdir(INPUT_DIR):
+    print(f"Error: Input directory '{INPUT_DIR}' does not exist.")
+    exit()
 FILE_EXTENSION = "*.ano" 
 SEPARATOR = "\t"
 

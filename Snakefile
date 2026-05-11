@@ -1,40 +1,70 @@
 """
 EvoResist Snakemake Pipeline (v2.0)
 ====================================
-Leveraging Convergent Evolution to Prioritize Antibiotic Resistance
-Mutations in Mycobacterium tuberculosis.
+Evolution-Guided Prioritization of Drug Resistance Mutations Enhances
+Molecular Prediction of Tuberculosis Drug Susceptibility.
 
-Pipeline Steps:
-  1. SNP calling from FASTQ or SRA files (per sample)
-  2. Phylogenetic tree building with IQ-TREE (per lineage)
-  3. Branch mutation extraction from tree nodes (per lineage)
-  4. Ancestor mutation extraction (global)
-  5. Merge annotations and count convergent mutations (global)
-  6. GTR simulation for null distribution (global)
+Pipeline Steps (Steps 1–7: convergent evolution analysis; Steps 8–19: DR mutation selection):
+  1. snp_calling      - SNP calling from FASTQ or SRA files (per sample)
+  2. indel_calling    - INDEL calling from BAM files (per sample)
+  3. build_tree       - Phylogenetic tree building with IQ-TREE (per lineage/sublineage)
+  4. branch_mutations - Branch mutations extraction (within lineage/sublineage)
+  5. ancestor_mutations - Ancestor mutations extraction (prior to lineage/sublineage diversification)
+  6. merge_annotations / stat_convergent / filter_convergent - Count convergent mutations by codon
+  7. simulation       - GTR+Gamma simulation of mutations under a null distribution
+  8. dr_train_test_split  - Stratify 70/30 train-test for sensitivity analysis to identify drug-specific convergent threshold
+  9. dr_filter_variants   - Include all SNPs (within primary DR genes and promoter regions) and indels (within primary DR genes)
+  10. dr_initial_list      - Identify convergent SNP candidates within primary DR genes for each drug
+  11. dr_make_list1         - Apply threshold × promoter-length combination to generate list1
+  12. dr_loo_evaluate       - Leave-one-out evaluation of a variant list; generate results on train or test split
+  13. dr_make_list2         - Apply LOO filtering criteria to generate refined list2
+  14. dr_select_best_threshold - Select best convergence threshold per drug from threshold sweep
+  15. dr_select_best_promoter  - Select best promoter length per drug from promoter-length sweep
+  16. dr_final_evaluate        - Final evaluation on full cohort (EvoResist, WHO G1+G2, WHO G1)
+  17. dr_gain_evaluation        - Incremental gain of EvoResist variants relative to WHO G1+G2 baseline
+  18. dr_lasso_analysis         - LASSO logistic regression for variant-phenotype association
+  19. dr_compare_who_evoresist  - Compare EvoResist vs WHO G1 and G1+G2 performance
 
 Key configuration options (config/config.yaml):
   outdir      - Base output directory (default: "output").
                 Recommended: single-level relative path so that shell scripts
                 using ../../ back-references resolve correctly.
   stop_at     - Stop after a specific step; valid values:
-                  step1/snp_calling, step2/build_tree,
-                  step3/branch_mutations, step4/ancestor_mutations,
-                  step5/merge_annotations, step6/simulation/all
+                  step1/snp_calling, step2/indel_calling,
+                  step3/build_tree, step4/branch_mutations,
+                  step5/ancestor_mutations, step6/merge_annotations,
+                  step7/simulation/all,
+                  step8/dr_prep, step9/dr_selection,
+                  step10/dr_best_threshold, step11/dr_best_promoter,
+                  step12/dr_final_evaluate, step13/dr_lasso,
+                  step14/dr_compare
   input_type  - Input data format: auto (default), fastq, or sra.
                 When set to "fastq", fastq_dir must also be set.
   fastq_dir   - Directory with pre-existing per-sample FASTQ files.
                 Required when input_type is "fastq"; ignored otherwise.
+  lineage     - Process only the specified lineage or list of lineages
+                (e.g. "Lineage1.1" or ["Lineage1.1", "Lineage2.3.4"]).
+                Each value must correspond to a file named
+                <strain_ids_dir>/<lineage>_strain.txt.
+                When omitted all lineages in strain_ids_dir are processed.
+  dr_best_promoters - Per-drug best promoter length (bp) determined after
+                step11/dr_best_promoter. Override per drug via:
+                  dr_best_promoters: {RIF: 400, INH: 300, ...}
+                Defaults to 500 for any drug not explicitly configured.
 
 Usage:
   snakemake --cores <N> --configfile config/config.yaml
   snakemake --cores <N> --configfile config/config.yaml --cluster "sbatch ..."
   # Run only up to SNP calling:
   snakemake --cores <N> --configfile config/config.yaml --config stop_at=step1
+  # Run only up to indel calling:
+  snakemake --cores <N> --configfile config/config.yaml --config stop_at=step2
   # Use a custom output directory:
   snakemake --cores <N> --configfile config/config.yaml --config outdir=results
 """
 
 import os
+import glob as _glob
 
 configfile: "config/config.yaml"
 
@@ -62,19 +92,198 @@ else:
 # =============================================================================
 # Discover lineages and samples from strain ID files
 # =============================================================================
-LINEAGES, = glob_wildcards(os.path.join(config["strain_ids_dir"], "{lineage}.txt"))
-LINEAGES = sorted(LINEAGES)
+STRAIN_IDS_DIR = config["strain_ids_dir"]
+
+# All available lineages are derived from files named <lineage>_strain.txt
+_all_lineage_names, = glob_wildcards(
+    os.path.join(STRAIN_IDS_DIR, "{lineage}_strain.txt")
+)
+_ALL_AVAILABLE_LINEAGES = sorted(_all_lineage_names)
+
+# If the user specified a lineage (or list of lineages), restrict to those.
+_lineage_cfg = config.get("lineage", None)
+if _lineage_cfg is not None:
+    # Accept a single string or a list
+    if isinstance(_lineage_cfg, str):
+        _requested = [_lineage_cfg]
+    else:
+        _requested = list(_lineage_cfg)
+
+    # Validate each requested lineage against the available strain files
+    _missing = [
+        lin for lin in _requested
+        if not os.path.isfile(os.path.join(STRAIN_IDS_DIR, f"{lin}_strain.txt"))
+    ]
+    if _missing:
+        raise ValueError(
+            f"No strain file found for lineage(s): {_missing}. "
+            f"Expected files: "
+            + ", ".join(f"{STRAIN_IDS_DIR}/{m}_strain.txt" for m in _missing)
+        )
+    LINEAGES = sorted(_requested)
+else:
+    LINEAGES = _ALL_AVAILABLE_LINEAGES
+
 
 def get_samples(lineage):
     """Read sample IDs from a lineage strain list file."""
-    filepath = os.path.join(config["strain_ids_dir"], f"{lineage}.txt")
+    filepath = os.path.join(STRAIN_IDS_DIR, f"{lineage}_strain.txt")
     with open(filepath) as f:
         return [line.strip() for line in f if line.strip()]
+
 
 ALL_SAMPLES = []
 for _lin in LINEAGES:
     ALL_SAMPLES.extend(get_samples(_lin))
 ALL_SAMPLES = sorted(set(ALL_SAMPLES))
+
+# For fastq mode, filter ALL_SAMPLES to those that actually have a FASTQ file
+# present in FQ_DIR, and warn about any that are missing.
+if INPUT_TYPE == "fastq":
+    _found = []
+    _missing_fq = []
+    for _s in ALL_SAMPLES:
+        _pe1  = os.path.join(FQ_DIR, f"{_s}_1.fastq.gz")
+        _pe2  = os.path.join(FQ_DIR, f"{_s}_2.fastq.gz")
+        _se   = os.path.join(FQ_DIR, f"{_s}.fastq.gz")
+        if os.path.isfile(_pe1) or os.path.isfile(_se):
+            _found.append(_s)
+        else:
+            _missing_fq.append(_s)
+    if _missing_fq:
+        import sys
+        print(
+            f"WARNING: {len(_missing_fq)} sample(s) listed in strain files "
+            f"have no matching FASTQ in {FQ_DIR!r} and will be skipped:\n"
+            + "\n".join(f"  {s}" for s in _missing_fq),
+            file=sys.stderr,
+        )
+    if not _found:
+        raise ValueError(
+            f"No FASTQ files found in {FQ_DIR!r} for any of the requested "
+            f"samples. Check fastq_dir and the strain ID files."
+        )
+    ALL_SAMPLES = _found
+
+# =============================================================================
+# DR mutation selection analysis configuration (Step 8+)
+# =============================================================================
+DR_DIR             = config.get("dr_results_dir", "dr_results")
+_DR_SNP_SOURCE     = config.get(
+    "dr_convergent_snp_file",
+    f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt",
+)
+_DR_INDEL_FILE     = config.get("all_indel_file", "data/all_indel_100k.txt.gz")
+_DR_SNP_ANNO_DIR   = config.get("snp_anno_dir", "")
+_DR_INDEL_ANNO_DIR = config.get("indel_anno_dir", "")
+
+_DR_DRUGS = [
+    "RIF", "INH", "EMB", "PZA", "LFX", "MFX",
+    "BDQ", "AMK", "STM", "ETO", "KAN", "CAP", "LZD",
+]
+
+# Best convergence threshold per drug (determined from training-set optimisation)
+_DR_BEST_THRESHOLDS = {
+    "RIF": 6, "INH": 3, "EMB": 5, "PZA": 2, "LFX": 6, "MFX": 6,
+    "BDQ": 3, "AMK": 6, "STM": 5, "ETO": 4, "KAN": 6, "CAP": 6, "LZD": 5,
+}
+
+# Best promoter length (bp) per drug, determined after running
+# step11/dr_best_promoter.
+# Defaults to 500 (the threshold-sweep promoter value) for any drug not
+# explicitly set. Override via config: dr_best_promoters: {RIF: 400, ...}
+_DR_BEST_PROMOTERS_CFG = config.get("dr_best_promoters", {})
+_DR_BEST_PROMOTERS = {
+    d: int(_DR_BEST_PROMOTERS_CFG.get(d, 500)) for d in _DR_DRUGS
+}
+
+# Per-drug gene parameters used by 02/04/05 R scripts
+# Keys: genes, starts, ends, lof (LoF flags for 04/05), strands (for 02/04/05)
+_DR_GENE_PARAMS = {
+    "RIF": {"genes": "rpoB",             "starts": "759807",                 "ends": "763325",                 "lof": "0",      "strands": "1"},
+    "INH": {"genes": "inhA,katG",        "starts": "1674202,2153889",        "ends": "1675011,2156111",         "lof": "0,1",    "strands": "1,0"},
+    "EMB": {"genes": "embB",             "starts": "4246514",                "ends": "4249810",                 "lof": "0",      "strands": "1"},
+    "PZA": {"genes": "pncA",             "starts": "2288681",                "ends": "2289241",                 "lof": "1",      "strands": "0"},
+    "LFX": {"genes": "gyrB,gyrA",        "starts": "5240,7302",              "ends": "7262,9818",               "lof": "0,0",    "strands": "1,1"},
+    "MFX": {"genes": "gyrB,gyrA",        "starts": "5240,7302",              "ends": "7262,9818",               "lof": "0,0",    "strands": "1,1"},
+    "BDQ": {"genes": "Rv0678,atpE,pepQ", "starts": "778990,1461045,2859300", "ends": "779487,1461290,2860418",  "lof": "1,0,1",  "strands": "1,1,0"},
+    "AMK": {"genes": "rrs,eis",          "starts": "1471846,2714124",        "ends": "1473382,2715332",         "lof": "0,0",    "strands": "1,0"},
+    "STM": {"genes": "gid,rpsL",         "starts": "4407528,781560",         "ends": "4408202,781934",          "lof": "1,0",    "strands": "0,1"},
+    "ETO": {"genes": "inhA,ethA",        "starts": "1674202,4326004",        "ends": "1675011,4327473",         "lof": "0,1",    "strands": "1,0"},
+    "KAN": {"genes": "rrs,eis",          "starts": "1471846,2714124",        "ends": "1473382,2715332",         "lof": "0,0",    "strands": "1,0"},
+    "CAP": {"genes": "rrs,tlyA",         "starts": "1471846,1917940",        "ends": "1473382,1918746",         "lof": "0,1",    "strands": "1,1"},
+    "LZD": {"genes": "rplC,rrl",         "starts": "800809,1473658",         "ends": "801462,1476795",          "lof": "0,0",    "strands": "1,1"},
+}
+
+# Threshold and promoter sweep parameters
+_DR_THRES_SWEEP = [2, 3, 4, 5, 6]
+_DR_PROM_FIXED  = 500
+_DR_PROM_SWEEP  = [100, 200, 300, 400, 600, 700, 800, 900, 1000]
+
+# All (drug, threshold, promoter) combos – threshold sweep + promoter sweep
+_DR_THRES_COMBOS = [(d, t, _DR_PROM_FIXED) for d in _DR_DRUGS for t in _DR_THRES_SWEEP]
+_DR_PROM_COMBOS  = [(d, _DR_BEST_THRESHOLDS[d], p) for d in _DR_DRUGS for p in _DR_PROM_SWEEP]
+_DR_ALL_COMBOS   = _DR_THRES_COMBOS + _DR_PROM_COMBOS
+
+# Output targets for each DR analysis stage
+_DR_PREP_TARGETS = (
+    expand(f"{DR_DIR}/{{drug}}/id/train_70.txt",                      drug=_DR_DRUGS) +
+    expand(f"{DR_DIR}/{{drug}}/denovo_snp_2.txt",                     drug=_DR_DRUGS) +
+    expand(f"{DR_DIR}/{{drug}}/denovo_EvoResist_initial_list.txt",    drug=_DR_DRUGS)
+)
+
+_DR_SWEEP_TARGETS = _DR_PREP_TARGETS + [
+    f"{DR_DIR}/{d}/Threshold_{t}_Promoter_{p}_list2.tsv"
+    for d, t, p in _DR_ALL_COMBOS
+] + [
+    f"{DR_DIR}/{d}/Threshold_{t}_Promoter_{p}/train_list2/overall_metrics.tsv"
+    for d, t, p in _DR_ALL_COMBOS
+] + [
+    f"{DR_DIR}/{d}/Threshold_{t}_Promoter_{p}/test_list2/overall_metrics.tsv"
+    for d, t, p in _DR_ALL_COMBOS
+]
+
+# Catalogue names used in the final evaluation step (EvoResist + two WHO baselines)
+_DR_CATALOGUES = ["EvoResist", "G1_2", "G1"]
+
+# Per-drug best-threshold selection outputs (step 10 / dr_best_threshold)
+_DR_BEST_THRESHOLD_TARGETS = [
+    f"{DR_DIR}/best_thresholds.tsv",
+    f"{DR_DIR}/best_thresholds.sh",
+]
+
+# Per-drug best-promoter selection outputs (step 11 / dr_best_promoter)
+_DR_BEST_PROMOTER_TARGETS = [
+    f"{DR_DIR}/best_promoters.tsv",
+    f"{DR_DIR}/best_promoters.sh",
+]
+
+# Final full-cohort evaluation outputs (step 12 / dr_final_evaluate)
+_DR_FINAL_EVAL_TARGETS = expand(
+    f"{DR_DIR}/{{drug}}/Final_Evaluate/{{catalogue}}/overall_metrics.tsv",
+    drug=_DR_DRUGS, catalogue=_DR_CATALOGUES,
+)
+
+# Incremental-gain outputs (step 13 / dr_gain_evaluation) — one file per drug
+_DR_GAIN_TARGETS = expand(
+    f"{DR_DIR}/{{drug}}/gain_EvoResist.txt",
+    drug=_DR_DRUGS,
+)
+
+# LASSO analysis outputs (step 13 / dr_lasso) — one summary file per drug
+_DR_LASSO_TARGETS = expand(
+    f"{DR_DIR}/{{drug}}/lasso/data_summary.tsv",
+    drug=_DR_DRUGS,
+)
+
+# WHO vs EvoResist comparison outputs (step 14 / dr_compare)
+_DR_COMPARE_TARGETS = [
+    f"{DR_DIR}/comparison/overall/comparison_formatted.tsv",
+    f"{DR_DIR}/comparison/by_lineage/comparison_formatted.tsv",
+    f"{DR_DIR}/comparison/by_lineage/comparison_stratified_formatted.tsv",
+    f"{DR_DIR}/comparison/by_pdst_method/comparison_formatted.tsv",
+    f"{DR_DIR}/comparison/by_pdst_method/comparison_stratified_formatted.tsv",
+]
 
 # =============================================================================
 # Map each stop_at value to its corresponding output files
@@ -85,20 +294,41 @@ _SIMULATION_OUTPUTS = [
     f"{OUTDIR}/simulation/expected_null_distribution_GTR_Gamma.csv",
 ]
 
+_INDEL_OUTPUTS = expand(f"{OUTDIR}/indel/{{sample}}.INDEL.pass.vcf.gz", sample=ALL_SAMPLES)
+
 _STOP_STEP_MAP = {
     "step1":              expand(f"{OUTDIR}/snv/{{sample}}.snp", sample=ALL_SAMPLES),
     "snp_calling":        expand(f"{OUTDIR}/snv/{{sample}}.snp", sample=ALL_SAMPLES),
-    "step2":              expand(f"{OUTDIR}/lineage_tree/{{lineage}}_btp.treefile", lineage=LINEAGES),
+    "step2":              _INDEL_OUTPUTS,
+    "indel_calling":      _INDEL_OUTPUTS,
+    "step3":              expand(f"{OUTDIR}/lineage_tree/{{lineage}}_btp.treefile", lineage=LINEAGES),
     "build_tree":         expand(f"{OUTDIR}/lineage_tree/{{lineage}}_btp.treefile", lineage=LINEAGES),
-    "step3":              expand(f"{OUTDIR}/lineage_ann/{{lineage}}.ann", lineage=LINEAGES),
+    "step4":              expand(f"{OUTDIR}/lineage_ann/{{lineage}}.ann", lineage=LINEAGES),
     "branch_mutations":   expand(f"{OUTDIR}/lineage_ann/{{lineage}}.ann", lineage=LINEAGES),
-    "step4":              [f"{OUTDIR}/lineage_ann/ancestor.ann"],
+    "step5":              [f"{OUTDIR}/lineage_ann/ancestor.ann"],
     "ancestor_mutations": [f"{OUTDIR}/lineage_ann/ancestor.ann"],
-    "step5":              [f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt"],
+    "step6":              [f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt"],
     "merge_annotations":  [f"{OUTDIR}/lineage_ann/all_ann_convergent_flt.txt"],
-    "step6":              _SIMULATION_OUTPUTS,
+    "step7":              _SIMULATION_OUTPUTS,
     "simulation":         _SIMULATION_OUTPUTS,
     "all":                _SIMULATION_OUTPUTS,
+    # DR mutation selection analysis (Step 8+)
+    "step8":              _DR_PREP_TARGETS,
+    "dr_prep":            _DR_PREP_TARGETS,
+    "step9":              _DR_SWEEP_TARGETS,
+    "dr_selection":       _DR_SWEEP_TARGETS,
+    # Best-parameter selection (steps 10–11)
+    "step10":             _DR_SWEEP_TARGETS + _DR_BEST_THRESHOLD_TARGETS,
+    "dr_best_threshold":  _DR_SWEEP_TARGETS + _DR_BEST_THRESHOLD_TARGETS,
+    "step11":             _DR_SWEEP_TARGETS + _DR_BEST_THRESHOLD_TARGETS + _DR_BEST_PROMOTER_TARGETS,
+    "dr_best_promoter":   _DR_SWEEP_TARGETS + _DR_BEST_THRESHOLD_TARGETS + _DR_BEST_PROMOTER_TARGETS,
+    # Final evaluation, gain, LASSO, comparison (steps 12–14)
+    "step12":             _DR_FINAL_EVAL_TARGETS,
+    "dr_final_evaluate":  _DR_FINAL_EVAL_TARGETS,
+    "step13":             _DR_GAIN_TARGETS + _DR_LASSO_TARGETS,
+    "dr_lasso":           _DR_GAIN_TARGETS + _DR_LASSO_TARGETS,
+    "step14":             _DR_COMPARE_TARGETS,
+    "dr_compare":         _DR_COMPARE_TARGETS,
 }
 
 if STOP_AT not in _STOP_STEP_MAP:
@@ -106,6 +336,27 @@ if STOP_AT not in _STOP_STEP_MAP:
         f"Invalid stop_at value '{STOP_AT}'. "
         f"Valid options: {sorted(set(_STOP_STEP_MAP.keys()))}"
     )
+
+# Validate that DR analysis prerequisites are set when a DR stop is requested
+_DR_STEPS_REQUIRING_ANNO = (
+    "step8", "dr_prep", "step9", "dr_selection",
+    "step10", "dr_best_threshold", "step11", "dr_best_promoter",
+    "step12", "dr_final_evaluate", "step13", "dr_lasso",
+    "step14", "dr_compare",
+)
+if STOP_AT in _DR_STEPS_REQUIRING_ANNO:
+    if not _DR_SNP_ANNO_DIR:
+        raise ValueError(
+            "config key 'snp_anno_dir' must be set when stop_at is a DR analysis step. "
+            "Point it to the directory containing per-sample SNP annotation files "
+            "named {sample}.ano (columns: position, ref, alt)."
+        )
+    if not _DR_INDEL_ANNO_DIR:
+        raise ValueError(
+            "config key 'indel_anno_dir' must be set when stop_at is a DR analysis step. "
+            "Point it to the directory containing per-sample indel annotation files "
+            "named {sample}.indel.ano (columns: position, ref, alt)."
+        )
 
 FINAL_TARGETS = _STOP_STEP_MAP[STOP_AT]
 
@@ -131,6 +382,7 @@ rule snp_calling:
         snp=f"{OUTDIR}/snv/{{sample}}.snp",
         cfa=f"{OUTDIR}/cfa/{{sample}}.cfa",
         forup=f"{OUTDIR}/forup/{{sample}}.forup",
+        bam=f"{OUTDIR}/bam/{{sample}}.sort.bam",
     params:
         sample="{sample}",
         fq_dir=FQ_DIR,
@@ -245,14 +497,14 @@ rule snp_calling:
             samtools merge "$bamm" "$bamp" "$bams"
             samtools sort "$bamm" -o "$sortbam"
             samtools index "$sortbam"
-            samtools mpileup -q 40 -Q 30 -ABOf "$ref" "$sortbam" > "$pileup"
+            samtools mpileup -q 30 -Q 30 -ABOf "$ref" "$sortbam" > "$pileup"
 
             java -jar "$varscan" mpileup2snp "$pileup" \
                 --min-coverage 10 --min-reads2 4 --min-avg-qual 30 \
-                --min-var-freq 0.01 --min-freq-for-hom 0.9 \
+                --min-var-freq 0.01 --min-freq-for-hom 0.75 \
                 --p-value 99e-02 --strand-filter 0 > "$var"
             java -jar "$varscan" mpileup2cns "$pileup" \
-                --min-coverage 10 --min-avg-qual 30 --min-var-freq 0.9 \
+                --min-coverage 10 --min-avg-qual 30 --min-var-freq 0.75 \
                 --min-reads2 4 --strand-filter 0 > "$cns"
 
             python scripts/remove_low_ebr.py "$low_ebr" "$var" > "$ppe"
@@ -281,14 +533,14 @@ rule snp_calling:
             samtools view -bhSt "${{ref}}.fai" "$samf" -o "$bamf"
             samtools sort "$bamf" -o "$sortbam"
             samtools index "$sortbam"
-            samtools mpileup -q 40 -Q 30 -ABOf "$ref" "$sortbam" > "$pileup"
+            samtools mpileup -q 30 -Q 30 -ABOf "$ref" "$sortbam" > "$pileup"
 
             java -jar "$varscan" mpileup2snp "$pileup" \
                 --min-coverage 10 --min-reads2 4 --min-avg-qual 30 \
-                --min-var-freq 0.01 --min-freq-for-hom 0.9 \
+                --min-var-freq 0.01 --min-freq-for-hom 0.75 \
                 --p-value 99e-02 --strand-filter 0 > "$var"
             java -jar "$varscan" mpileup2cns "$pileup" \
-                --min-coverage 10 --min-avg-qual 30 --min-var-freq 0.9 \
+                --min-coverage 10 --min-avg-qual 30 --min-var-freq 0.75 \
                 --min-reads2 4 --strand-filter 0 > "$cns"
 
             python scripts/remove_low_ebr.py "$low_ebr" "$var" > "$ppe"
@@ -309,7 +561,133 @@ rule snp_calling:
 
 
 # =============================================================================
-# Step 2: Build Phylogenetic Tree (per lineage)
+# Step 2: INDEL Calling (per sample)
+# =============================================================================
+# Calls INDELs from sorted BAM files using GATK3 local realignment and
+# UnifiedGenotyper, followed by bcftools normalization and QC filtering.
+# Produces per-sample INDEL VCF files (pass-filtered) in {OUTDIR}/indel/.
+
+rule indel_calling:
+    input:
+        bam=f"{OUTDIR}/bam/{{sample}}.sort.bam",
+        ref=config["reference"],
+    output:
+        vcf_pass=f"{OUTDIR}/indel/{{sample}}.INDEL.pass.vcf.gz",
+        vcf_pass_tbi=f"{OUTDIR}/indel/{{sample}}.INDEL.pass.vcf.gz.tbi",
+    params:
+        sample="{sample}",
+        indel_dir=f"{OUTDIR}/indel",
+        picard=config["picard_jar"],
+        gatk=config["gatk_jar"],
+    resources:
+        mem_mb=8000,
+    shell:
+        r"""
+        set -euo pipefail
+        sample={params.sample}
+        indel_dir={params.indel_dir}
+        ref={input.ref}
+        bam={input.bam}
+        picard={params.picard}
+        gatk={params.gatk}
+
+        mkdir -p "$indel_dir"
+
+        # QC thresholds
+        MAX_INDEL_LEN=50
+        MIN_DP=10
+        MIN_AF=0.75
+
+        # Intermediate BAM files
+        bam_filt="${{indel_dir}}/${{sample}}.filt.bam"
+        bam_rg="${{indel_dir}}/${{sample}}.RG.bam"
+        intervals="${{indel_dir}}/${{sample}}.intervals"
+        bam_rl="${{indel_dir}}/${{sample}}.RL.bam"
+
+        # VCF output files
+        vcf_raw="${{indel_dir}}/${{sample}}.INDEL.raw.vcf"
+        vcf_norm="${{indel_dir}}/${{sample}}.INDEL.norm.vcf.gz"
+        vcf_tags="${{indel_dir}}/${{sample}}.INDEL.norm.tags.vcf.gz"
+        vcf_pass="{output.vcf_pass}"
+
+        ###########################################################################
+        # 1) Filter BAM: remove unmapped reads (-F 4) and MAPQ=0 reads (-q 1)
+        ###########################################################################
+        samtools view -bF 4 -q 1 "$bam" > "$bam_filt"
+        samtools index "$bam_filt"
+
+        ###########################################################################
+        # 2) Add or replace read groups (required by GATK tools)
+        ###########################################################################
+        java -jar "$picard" AddOrReplaceReadGroups \
+            I="$bam_filt" O="$bam_rg" \
+            RGID=4 RGLB=lib1 RGPL=illumina RGPU=unit1 RGSM=20
+        samtools index "$bam_rg"
+
+        ###########################################################################
+        # 3) GATK3: identify realignment targets around indels
+        ###########################################################################
+        java -Xmx2g -jar "$gatk" \
+            -I "$bam_rg" -R "$ref" \
+            -T RealignerTargetCreator -maxInterval 20000 \
+            -o "$intervals"
+
+        ###########################################################################
+        # 4) GATK3: local realignment around indels
+        ###########################################################################
+        java -Xmx4g -jar "$gatk" \
+            -I "$bam_rg" -R "$ref" \
+            -T IndelRealigner -targetIntervals "$intervals" \
+            -o "$bam_rl"
+        samtools index "$bam_rl"
+
+        ###########################################################################
+        # 5) GATK3: call INDELs (UnifiedGenotyper)
+        ###########################################################################
+        java -Xmx4g -jar "$gatk" \
+            -T UnifiedGenotyper -nt 1 \
+            -R "$ref" -I "$bam_rl" \
+            -glm INDEL -o "$vcf_raw"
+
+        ###########################################################################
+        # 6) Normalize INDEL representation (left-align; split multiallelic)
+        ###########################################################################
+        bcftools norm -f "$ref" -m -both "$vcf_raw" -Oz -o "$vcf_norm"
+        bcftools index -t "$vcf_norm"
+
+        ###########################################################################
+        # 7) Add tags AF/AC/AN (computed from genotype fields)
+        ###########################################################################
+        bcftools +fill-tags "$vcf_norm" -Oz -o "$vcf_tags" -- -t AF,AC,AN
+        bcftools index -t "$vcf_tags"
+
+        ###########################################################################
+        # 8) QC filter:
+        #    - keep only INDELs
+        #    - indel length <= 50 bp
+        #    - FORMAT/DP >= 10  (per-sample depth)
+        #    - INFO/AF >= 0.75  (fixed/high-confidence variants)
+        ###########################################################################
+        bcftools view -i "TYPE='indel' && abs(strlen(REF)-strlen(ALT))<=${{MAX_INDEL_LEN}}" \
+            "$vcf_tags" -Ou \
+            | bcftools filter -i "FORMAT/DP>=${{MIN_DP}} && INFO/AF>=${{MIN_AF}}" \
+            -Oz -o "$vcf_pass"
+        bcftools index -t "$vcf_pass"
+
+        ###########################################################################
+        # 9) Cleanup intermediate BAM files
+        ###########################################################################
+        rm -f "$bam_filt" "$bam_filt.bai" \
+              "$bam_rg" "$bam_rg.bai" \
+              "$intervals" \
+              "$bam_rl" "$bam_rl.bai"
+
+        echo "INDEL calling complete for $sample."
+        """
+
+
+# =============================================================================
+# Step 3: Build Phylogenetic Tree (per lineage/sublineage)
 # =============================================================================
 # Collects SNP positions across all samples in a lineage, generates a
 # concatenated alignment, and builds a maximum-likelihood tree with IQ-TREE.
@@ -320,7 +698,7 @@ rule build_tree:
                                sample=get_samples(wc.lineage)),
         cfas=lambda wc: expand(f"{OUTDIR}/cfa/{{sample}}.cfa",
                                sample=get_samples(wc.lineage)),
-        strain_list=os.path.join(config["strain_ids_dir"], "{lineage}.txt"),
+        strain_list=os.path.join(config["strain_ids_dir"], "{lineage}_strain.txt"),
         anc_cfa=config["ancestor_concat_fasta"],
         ref=config["reference"],
     output:
@@ -399,7 +777,7 @@ rule build_tree:
 
 
 # =============================================================================
-# Step 3: Branch Mutation Extraction (per lineage)
+# Step 4: Branch Mutation Extraction (within lineage/sublineage)
 # =============================================================================
 # Extracts mutations per branch/node from the phylogenetic tree and annotates
 # them using the MTBC translation scripts.
@@ -485,7 +863,7 @@ rule branch_mutations:
 
 
 # =============================================================================
-# Step 4: Ancestor Mutation Extraction (global)
+# Step 5: Ancestor Mutation Extraction (prior to lineage/sublineage diversification)
 # =============================================================================
 # Extracts and annotates mutations from ancestor nodes shared across lineages.
 
@@ -533,7 +911,7 @@ rule ancestor_mutations:
 
 
 # =============================================================================
-# Step 5: Merge Annotations and Count Convergent Mutations
+# Step 6: Merge Annotations and Count Convergent Mutations by Codon
 # =============================================================================
 # Merges all lineage and ancestor annotations, then counts convergent events.
 
@@ -586,7 +964,7 @@ rule filter_convergent:
 
 
 # =============================================================================
-# Step 6: GTR Simulation for Null Distribution
+# Step 7: GTR+Gamma Simulation of Mutations Under a Null Distribution
 # =============================================================================
 # Simulates convergent mutation counts under a GTR+Gamma model to generate
 # the null distribution for statistical testing.
@@ -605,5 +983,434 @@ rule simulation:
         r"""
         mkdir -p {params.sim_dir}
         cd {params.sim_dir}
+        #optional, if you want to get GTR probs using your own data, you can run the following command 
+        #and replace the output GTR probs in the simulation_GTR_gamma.py script
+        #python ../../scripts/fourfold_dgr_rate.py ../../{OUTDIR}/lineage_ann/
+        
         python ../../scripts/simulation_GTR_gamma.py
+        """
+
+
+# =============================================================================
+# Step 8: DR – Stratify 70/30 Train-Test Split per Drug
+# =============================================================================
+# Stratified 70/30 train-test split of the per-drug sample lists for
+# sensitivity analysis to identify drug-specific convergent thresholds.
+
+rule dr_train_test_split:
+    input:
+        sample_list="data/{drug}_sample_list.txt",
+    output:
+        train=f"{DR_DIR}/{{drug}}/id/train_70.txt",
+        test=f"{DR_DIR}/{{drug}}/id/test_30.txt",
+    params:
+        outdir=lambda wc: f"{DR_DIR}/{wc.drug}/id",
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/01-train_test_split.R \
+            {input.sample_list} {params.outdir}
+        """
+
+
+# =============================================================================
+# Step 9: DR – Filter Variants to Primary Drug-Resistance Regions
+# =============================================================================
+# Includes all SNPs within primary drug-resistance genes and promoter regions,
+# and all indels within primary drug-resistance genes.
+
+rule dr_filter_variants:
+    input:
+        snp_file=_DR_SNP_SOURCE,
+        indel_file=_DR_INDEL_FILE,
+    output:
+        snp=f"{DR_DIR}/{{drug}}/denovo_snp_2.txt",
+        indel=f"{DR_DIR}/{{drug}}/denovo_indel_2.txt",
+    params:
+        drug="{drug}",
+        outdir=lambda wc: f"{DR_DIR}/{wc.drug}",
+    shell:
+        r"""
+        set -euo pipefail
+        mkdir -p {params.outdir}
+
+        # Filter SNPs: all positions in each (possibly range-encoded) entry must
+        # fall within the drug-relevant genomic region.
+        # NOTE: SNP windows intentionally extend ~1000 bp upstream to capture
+        # promoter-region variants; indel filters below use exact gene coordinates.
+        # Boundaries match the filter_snp_allpos_inside function in 00-pipeline.sh.
+        snp_file={input.snp_file}
+        [[ "$snp_file" == *.gz ]] && snp_cat="zcat" || snp_cat="cat"
+        $snp_cat "$snp_file" | awk -F' ' -v DRUG='{params.drug}' '
+        $4 ~ /^[0-9]+(-[0-9]+)*$/ {{
+            n = split($4, a, "-")
+            keep = 1
+            for (i = 1; i <= n; i++) {{
+                pos = a[i]+0
+                ok = 0
+                if      (DRUG == "RIF") {{ ok = (pos >= 758807  && pos <= 763325) }}
+                else if (DRUG == "INH") {{ ok = ((pos >= 1672440 && pos <= 1675011) || (pos >= 2153889 && pos <= 2157111)) }}
+                else if (DRUG == "EMB") {{ ok = (pos >= 4245514  && pos <= 4249810) }}
+                else if (DRUG == "PZA") {{ ok = (pos >= 2288681  && pos <= 2290241) }}
+                else if (DRUG == "LFX" || DRUG == "MFX") {{ ok = (pos >= 4240 && pos <= 9818) }}
+                else if (DRUG == "BDQ") {{ ok = ((pos >= 777990  && pos <= 779487)  || (pos >= 1460045 && pos <= 1461290) || (pos >= 2858300 && pos <= 2861418)) }}
+                else if (DRUG == "AMK") {{ ok = ((pos >= 1470846 && pos <= 1473382) || (pos >= 2715332 && pos <= 2716332)) }}
+                else if (DRUG == "STM") {{ ok = ((pos >= 780560  && pos <= 781934)  || (pos >= 4407528 && pos <= 4409202) || pos == 1472359 || pos == 1472362) }}
+                else if (DRUG == "ETO") {{ ok = ((pos >= 4326004 && pos <= 4328473) || (pos >= 1672440 && pos <= 1675011)) }}
+                else if (DRUG == "KAN") {{ ok = ((pos >= 1470846 && pos <= 1473382) || (pos >= 2714124 && pos <= 2716332)) }}
+                else if (DRUG == "CAP") {{ ok = ((pos >= 1470846 && pos <= 1473382) || (pos >= 1916940 && pos <= 1918746)) }}
+                else if (DRUG == "LZD") {{ ok = ((pos >= 799809  && pos <= 801462)  || (pos >= 1472658 && pos <= 1476795)) }}
+                if (!ok) {{ keep = 0; break }}
+            }}
+            if (keep) print
+        }}' > {output.snp}
+
+        # Filter indels by position (column 2, tab-separated)
+        indel_file={input.indel_file}
+        [[ "$indel_file" == *.gz ]] && indel_cat="zcat" || indel_cat="cat"
+        $indel_cat "$indel_file" | awk -F'\t' -v DRUG='{params.drug}' '{{
+            pass = 0
+            if      (DRUG == "RIF") {{ pass = ($2 >= 759807  && $2 <= 763325) }}
+            else if (DRUG == "INH") {{ pass = (($2 >= 1674202 && $2 <= 1675011) || ($2 >= 2153889 && $2 <= 2156111)) }}
+            else if (DRUG == "EMB") {{ pass = ($2 >= 4246514  && $2 <= 4249810) }}
+            else if (DRUG == "PZA") {{ pass = ($2 >= 2288681  && $2 <= 2289241) }}
+            else if (DRUG == "LFX" || DRUG == "MFX") {{ pass = (($2 >= 5240 && $2 <= 7262) || ($2 >= 7302 && $2 <= 9818)) }}
+            else if (DRUG == "BDQ") {{ pass = (($2 >= 778990  && $2 <= 779487)  || ($2 >= 1461045 && $2 <= 1461290) || ($2 >= 2859300 && $2 <= 2860418)) }}
+            else if (DRUG == "AMK") {{ pass = (($2 >= 1471846 && $2 <= 1473382) || ($2 >= 2715332 && $2 <= 2716332)) }}
+            else if (DRUG == "STM") {{ pass = (($2 >= 781560  && $2 <= 781934)  || ($2 >= 4407528 && $2 <= 4408202)) }}
+            else if (DRUG == "ETO") {{ pass = (($2 >= 4326004 && $2 <= 4327473) || ($2 >= 1674202 && $2 <= 1675011)) }}
+            else if (DRUG == "KAN") {{ pass = (($2 >= 1471846 && $2 <= 1473382) || ($2 >= 2714124 && $2 <= 2716332)) }}
+            else if (DRUG == "CAP") {{ pass = (($2 >= 1471846 && $2 <= 1473382) || ($2 >= 1917940 && $2 <= 1918746)) }}
+            else if (DRUG == "LZD") {{ pass = (($2 >= 800809  && $2 <= 801462)  || ($2 >= 1473658 && $2 <= 1476795)) }}
+            if (pass) print
+        }}' > {output.indel}
+        """
+
+
+# =============================================================================
+# Step 10: DR – Build Initial Convergent SNP Candidate List (per drug)
+# =============================================================================
+# Identifies convergent SNP candidates within primary drug-resistance genes
+# for each drug and prepares the initial candidate list.
+# Requires per-drug WHO catalogue files placed at:
+#   <dr_results_dir>/<drug>/WHO_list/WHO_list_allGroup.txt
+
+rule dr_initial_list:
+    input:
+        snp=f"{DR_DIR}/{{drug}}/denovo_snp_2.txt",
+        indel=f"{DR_DIR}/{{drug}}/denovo_indel_2.txt",
+        who=f"{DR_DIR}/{{drug}}/WHO_list/WHO_list_allGroup.txt",
+    output:
+        f"{DR_DIR}/{{drug}}/denovo_EvoResist_initial_list.txt",
+    params:
+        drug="{drug}",
+        genes=lambda wc:   _DR_GENE_PARAMS[wc.drug]["genes"],
+        starts=lambda wc:  _DR_GENE_PARAMS[wc.drug]["starts"],
+        ends=lambda wc:    _DR_GENE_PARAMS[wc.drug]["ends"],
+        strands=lambda wc: _DR_GENE_PARAMS[wc.drug]["strands"],
+        results_dir=DR_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/02-make_initial_list.R \
+            {params.drug} {params.genes} {params.starts} {params.ends} \
+            {params.strands} {params.results_dir}
+        """
+
+
+# =============================================================================
+# Step 11: DR – Apply Threshold × Promoter-Length Combination to Generate List1
+# =============================================================================
+# Applies convergence-event-number threshold and promoter-length filter to
+# the annotated initial candidate list to produce list1.
+
+rule dr_make_list1:
+    input:
+        initial=f"{DR_DIR}/{{drug}}/denovo_EvoResist_initial_list.txt",
+    output:
+        f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}_list1.tsv",
+    params:
+        drug="{drug}",
+        genes=lambda wc:   _DR_GENE_PARAMS[wc.drug]["genes"],
+        starts=lambda wc:  _DR_GENE_PARAMS[wc.drug]["starts"],
+        ends=lambda wc:    _DR_GENE_PARAMS[wc.drug]["ends"],
+        lof=lambda wc:     _DR_GENE_PARAMS[wc.drug]["lof"],
+        strands=lambda wc: _DR_GENE_PARAMS[wc.drug]["strands"],
+        results_dir=DR_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/04-make_thres_prom_combination.R \
+            {params.drug} {params.genes} {params.starts} {params.ends} \
+            {params.lof} {wildcards.threshold} {wildcards.promoter} \
+            {params.strands} {params.results_dir}
+        """
+
+
+# =============================================================================
+# Step 12: DR – Leave-One-Out Evaluation of a Variant List
+# =============================================================================
+# Performs leave-one-out evaluation for a specified variant list on the
+# training split, and generates prediction results for the same list on either
+# the training or test split. Wildcard `listver` is `list1` or `list2`; `split`
+# is `train` or `test`.
+
+rule dr_loo_evaluate:
+    input:
+        variants=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}_{{listver}}.tsv",
+        id_list=lambda wc: (
+            f"{DR_DIR}/{wc.drug}/id/train_70.txt"
+            if wc.split == "train"
+            else f"{DR_DIR}/{wc.drug}/id/test_30.txt"
+        ),
+    output:
+        overall=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}/{{split}}_{{listver}}/overall_metrics.tsv",
+        per_var=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}/{{split}}_{{listver}}/per_variant_analysis.tsv",
+        preds=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}/{{split}}_{{listver}}/isolate_predictions.tsv",
+    params:
+        snp_dir=_DR_SNP_ANNO_DIR,
+        indel_dir=_DR_INDEL_ANNO_DIR,
+        outdir=lambda wc: (
+            f"{DR_DIR}/{wc.drug}/Threshold_{wc.threshold}_Promoter_{wc.promoter}"
+            f"/{wc.split}_{wc.listver}"
+        ),
+    shell:
+        r"""
+        set -euo pipefail
+        python3 scripts/dr_mutation_selection/03-leave_one_out.py \
+            --variants_file {input.variants} \
+            --id_list_file  {input.id_list} \
+            --snp_dir       {params.snp_dir} \
+            --indel_dir     {params.indel_dir} \
+            --output_dir    {params.outdir}
+        """
+
+
+# =============================================================================
+# Step 13: DR – Apply LOO Filtering Criteria to Generate Refined List2
+# =============================================================================
+# Reads per-variant leave-one-out results from the training-set evaluation of
+# list1 and removes variants whose removal improves combined sensitivity +
+# specificity, yielding a refined list2.
+
+rule dr_make_list2:
+    input:
+        loo=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}/train_list1/per_variant_analysis.tsv",
+    output:
+        list2=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}_list2.tsv",
+        removed=f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{{promoter}}_list1_removingrecords.tsv",
+    params:
+        drug="{drug}",
+        genes=lambda wc:   _DR_GENE_PARAMS[wc.drug]["genes"],
+        starts=lambda wc:  _DR_GENE_PARAMS[wc.drug]["starts"],
+        ends=lambda wc:    _DR_GENE_PARAMS[wc.drug]["ends"],
+        lof=lambda wc:     _DR_GENE_PARAMS[wc.drug]["lof"],
+        strands=lambda wc: _DR_GENE_PARAMS[wc.drug]["strands"],
+        results_dir=DR_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/05-loo_evaluate.R \
+            {params.drug} {params.genes} {params.starts} {params.ends} \
+            {params.lof} {wildcards.threshold} {wildcards.promoter} \
+            {params.strands} {params.results_dir}
+        """
+
+
+# =============================================================================
+# Step 14: DR – Select Best Convergence Threshold per Drug
+# =============================================================================
+# Reads list2 train/test metrics from the convergence-threshold sweep
+# (promoter = 500 bp, threshold 2–6) and selects the best threshold per drug
+# by maximising MCC on the test set. Writes best_thresholds.tsv (human-
+# readable summary) and best_thresholds.sh (bash-sourceable variable file).
+
+rule dr_select_best_threshold:
+    input:
+        metrics=expand(
+            f"{DR_DIR}/{{drug}}/Threshold_{{threshold}}_Promoter_{_DR_PROM_FIXED}/test_list2/overall_metrics.tsv",
+            drug=_DR_DRUGS, threshold=_DR_THRES_SWEEP,
+        ),
+    output:
+        tsv=f"{DR_DIR}/best_thresholds.tsv",
+        sh=f"{DR_DIR}/best_thresholds.sh",
+    params:
+        results_dir=DR_DIR,
+        promoter_fixed=_DR_PROM_FIXED,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/05-select_best_params.R \
+            --step threshold \
+            --results_dir {params.results_dir} \
+            --promoter_fixed {params.promoter_fixed}
+        """
+
+
+# =============================================================================
+# Step 15: DR – Select Best Promoter Length per Drug
+# =============================================================================
+# Reads list2 train/test metrics from the promoter-length sweep (best threshold
+# per drug, promoter 100–1000 bp) and selects the best promoter length per drug
+# by maximising MCC on the test set. Writes best_promoters.tsv and
+# best_promoters.sh.
+
+rule dr_select_best_promoter:
+    input:
+        metrics=[
+            f"{DR_DIR}/{d}/Threshold_{_DR_BEST_THRESHOLDS[d]}_Promoter_{p}/test_list2/overall_metrics.tsv"
+            for d in _DR_DRUGS for p in _DR_PROM_SWEEP
+        ],
+    output:
+        tsv=f"{DR_DIR}/best_promoters.tsv",
+        sh=f"{DR_DIR}/best_promoters.sh",
+    params:
+        results_dir=DR_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/05-select_best_params.R \
+            --step promoter \
+            --results_dir {params.results_dir}
+        """
+
+
+# =============================================================================
+# Step 16: DR – Final Full-Cohort Evaluation
+# =============================================================================
+# Evaluates three variant catalogues (EvoResist final list, WHO G1+G2, WHO G1)
+# on the complete per-drug sample list using leave-one-out scoring. Wildcard
+# `catalogue` is one of: EvoResist, G1_2, G1.
+# For EvoResist, the variant file is the best threshold x promoter list2.
+# For WHO catalogues, pre-placed files in WHO_list/ are used.
+
+rule dr_final_evaluate:
+    input:
+        variants=lambda wc: (
+            f"{DR_DIR}/{wc.drug}/Threshold_{_DR_BEST_THRESHOLDS[wc.drug]}_Promoter_{_DR_BEST_PROMOTERS[wc.drug]}_list2.tsv"
+            if wc.catalogue == "EvoResist"
+            else f"{DR_DIR}/{wc.drug}/WHO_list/WHO_{wc.catalogue}_withcolnames.txt"
+        ),
+        id_list="data/{drug}_sample_list.txt",
+    output:
+        overall=f"{DR_DIR}/{{drug}}/Final_Evaluate/{{catalogue}}/overall_metrics.tsv",
+        per_var=f"{DR_DIR}/{{drug}}/Final_Evaluate/{{catalogue}}/per_variant_analysis.tsv",
+        preds=f"{DR_DIR}/{{drug}}/Final_Evaluate/{{catalogue}}/isolate_predictions.tsv",
+    params:
+        snp_dir=_DR_SNP_ANNO_DIR,
+        indel_dir=_DR_INDEL_ANNO_DIR,
+        outdir=lambda wc: f"{DR_DIR}/{wc.drug}/Final_Evaluate/{wc.catalogue}",
+    shell:
+        r"""
+        set -euo pipefail
+        python3 scripts/dr_mutation_selection/03-leave_one_out.py \
+            --variants_file {input.variants} \
+            --id_list_file  {input.id_list} \
+            --snp_dir       {params.snp_dir} \
+            --indel_dir     {params.indel_dir} \
+            --output_dir    {params.outdir}
+        """
+
+
+# =============================================================================
+# Step 17: DR – Incremental Gain Evaluation
+# =============================================================================
+# Evaluates the incremental gain of EvoResist variants relative to the overlap
+# between EvoResist and WHO G1+G2 used as the baseline.
+
+rule dr_gain_evaluation:
+    input:
+        list1_variants=f"{DR_DIR}/{{drug}}/WHO_list/WHO_G1_2_withcolnames.txt",
+        list2_variants=lambda wc: (
+            f"{DR_DIR}/{wc.drug}/Threshold_{_DR_BEST_THRESHOLDS[wc.drug]}_Promoter_{_DR_BEST_PROMOTERS[wc.drug]}_list2.tsv"
+        ),
+        id_list="data/{drug}_sample_list.txt",
+    output:
+        f"{DR_DIR}/{{drug}}/gain_EvoResist.txt",
+    params:
+        snp_dir=_DR_SNP_ANNO_DIR,
+        indel_dir=_DR_INDEL_ANNO_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        python3 scripts/dr_mutation_selection/06-gain_evaluation.py \
+            --list1_variants_file {input.list1_variants} \
+            --list2_variants_file {input.list2_variants} \
+            --id_list_file        {input.id_list} \
+            --snp_dir             {params.snp_dir} \
+            --indel_dir           {params.indel_dir} \
+            --output_file         {output}
+        """
+
+
+# =============================================================================
+# Step 18: DR – LASSO Logistic Regression Analysis
+# =============================================================================
+# Runs LASSO logistic regression for variant-phenotype association adjusted for
+# lineage and reports selected-variant effect estimates.
+
+rule dr_lasso_analysis:
+    input:
+        variants=lambda wc: (
+            f"{DR_DIR}/{wc.drug}/Threshold_{_DR_BEST_THRESHOLDS[wc.drug]}_Promoter_{_DR_BEST_PROMOTERS[wc.drug]}_list2.tsv"
+        ),
+        id_list="data/{drug}_sample_list.txt",
+    output:
+        data_summary=f"{DR_DIR}/{{drug}}/lasso/data_summary.tsv",
+        cv_perf=f"{DR_DIR}/{{drug}}/lasso/cv_performance.tsv",
+        model_coef=f"{DR_DIR}/{{drug}}/lasso/model_coefficients.tsv",
+        refit_coef=f"{DR_DIR}/{{drug}}/lasso/refit_coefficients.tsv",
+    params:
+        snp_dir=_DR_SNP_ANNO_DIR,
+        indel_dir=_DR_INDEL_ANNO_DIR,
+        outdir=lambda wc: f"{DR_DIR}/{wc.drug}/lasso",
+    shell:
+        r"""
+        set -euo pipefail
+        python3 scripts/dr_mutation_selection/07-lasso_analysis.py \
+            --variants_file {input.variants} \
+            --id_list_file  {input.id_list} \
+            --snp_dir       {params.snp_dir} \
+            --indel_dir     {params.indel_dir} \
+            --penalty l1 \
+            --output_dir    {params.outdir}
+        """
+
+
+# =============================================================================
+# Step 19: DR – Compare EvoResist vs WHO Performance
+# =============================================================================
+# Compares prediction performance between EvoResist and WHO catalogues (G1 and
+# G1+G2), both overall and in stratified analyses.
+
+rule dr_compare_who_evoresist:
+    input:
+        final_evals=expand(
+            f"{DR_DIR}/{{drug}}/Final_Evaluate/{{catalogue}}/overall_metrics.tsv",
+            drug=_DR_DRUGS, catalogue=_DR_CATALOGUES,
+        ),
+    output:
+        overall=f"{DR_DIR}/comparison/overall/comparison_formatted.tsv",
+        by_lineage=f"{DR_DIR}/comparison/by_lineage/comparison_formatted.tsv",
+        by_lineage_strat=f"{DR_DIR}/comparison/by_lineage/comparison_stratified_formatted.tsv",
+        by_pdst=f"{DR_DIR}/comparison/by_pdst_method/comparison_formatted.tsv",
+        by_pdst_strat=f"{DR_DIR}/comparison/by_pdst_method/comparison_stratified_formatted.tsv",
+    params:
+        results_dir=DR_DIR,
+    shell:
+        r"""
+        set -euo pipefail
+        Rscript scripts/dr_mutation_selection/08-compare_who_evoresist.R \
+            {params.results_dir} \
+            {params.results_dir}/comparison/overall
+
+        Rscript scripts/dr_mutation_selection/08-compare_who_evoresist.R \
+            {params.results_dir} \
+            {params.results_dir}/comparison/by_lineage \
+            Lineage
+
+        Rscript scripts/dr_mutation_selection/08-compare_who_evoresist.R \
+            {params.results_dir} \
+            {params.results_dir}/comparison/by_pdst_method \
+            pdst_method2
         """

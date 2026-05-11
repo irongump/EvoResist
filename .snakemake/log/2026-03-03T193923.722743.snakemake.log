@@ -1,0 +1,88 @@
+Config file config/config.yaml is extended by additional config specified via the command line.
+Assuming unrestricted shared filesystem usage.
+host: DESKTOP-G74MPKE
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 4
+Rules claiming more threads will be scaled down.
+Job stats:
+job                 count
+----------------  -------
+all                     1
+branch_mutations        1
+build_tree              1
+filter_samples          1
+total                   4
+
+Select jobs to execute...
+Execute 1 jobs...
+[Tue Mar  3 19:39:23 2026]
+localcheckpoint filter_samples:
+    input: data/strain_ids/Lineage7_strain.txt
+    output: depth_30/lineage_tree/Lineage7_strain_depth_30.txt
+    jobid: 3
+    reason: Missing output files: depth_30/lineage_tree/Lineage7_strain_depth_30.txt
+    resources: tmpdir=/tmp
+DAG of jobs will be updated after completion.
+[Tue Mar  3 19:39:25 2026]
+Finished jobid: 3 (Rule: filter_samples)
+1 of 4 steps (25%) done
+Updating checkpoint dependencies.
+MissingInputException in rule build_tree in file "/mnt/c/Users/Administrator/Documents/UNC_projects/MTB_phy_db/lingbo/EvoResist/Snakefile_single_lineage", line 113:
+Missing input files for rule build_tree:
+    output: depth_30/lineage_tree/Lineage7_strain_btp.treefile, depth_30/lineage_tree/Lineage7_strain_btp.state
+    affected files:
+        data/snv/ERR1971849.snp
+        data/snv/ERR1200633.snp
+        data/snv/ERR1200635.snp
+        data/snv/ERR1200634.snp
+        data/snv/ERR1971867.snp
+        data/snv/ERR1200625.snp
+        data/snv/ERR1971872.snp
+        data/snv/ERR1971863.snp
+        data/snv/ERR1971859.snp
+        data/snv/ERR1971864.snp
+        data/snv/ERR1971873.snp
+        data/snv/ERR1971857.snp
+        data/snv/ERR1200624.snp
+        data/snv/ERR1971860.snp
+        data/snv/ERR1971866.snp
+        data/snv/ERR1971874.snp
+        data/snv/ERR1971852.snp
+        data/snv/ERR1971862.snp
+        data/snv/ERR1971868.snp
+        data/snv/ERR1971855.snp
+        data/snv/ERR756347.snp
+        data/snv/ERR1971850.snp
+        data/snv/ERR1971858.snp
+        data/snv/ERR1200612.snp
+        data/snv/ERR1200603.snp
+        data/snv/ERR756344.snp
+        data/snv/ERR1200623.snp
+        data/snv/ERR1200631.snp
+        data/snv/ERR1971870.snp
+        data/snv/ERR400415.snp
+        data/snv/ERR756348.snp
+        data/snv/ERR1971869.snp
+        data/snv/ERR1200610.snp
+        data/snv/ERR4814968.snp
+        data/snv/ERR756345.snp
+        data/snv/ERR1971876.snp
+        data/snv/SRR18911237.snp
+        data/snv/ERR1971861.snp
+        data/snv/ERR1200604.snp
+        data/snv/ERR756346.snp
+        data/snv/ERR1200602.snp
+        data/snv/ERR1971871.snp
+        data/snv/ERR1200617.snp
+        data/snv/ERR1971856.snp
+        data/snv/ERR1200618.snp
+        data/snv/ERR1200636.snp
+        data/snv/ERR1200606.snp
+        data/snv/ERR1971853.snp
+        data/snv/ERR1200639.snp
+        data/snv/ERR1971854.snp
+        data/snv/ERR1200619.snp
+        data/snv/ERR1200613.snp
+        data/snv/ERR1971877.snp
+        data/snv/ERR1971865.snp

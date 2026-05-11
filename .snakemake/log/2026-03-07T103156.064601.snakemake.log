@@ -1,0 +1,68 @@
+Config file config/config.yaml is extended by additional config specified via the command line.
+Assuming unrestricted shared filesystem usage.
+host: DESKTOP-G74MPKE
+Building DAG of jobs...
+Using shell: /usr/bin/bash
+Provided cores: 4
+Rules claiming more threads will be scaled down.
+Job stats:
+job                 count
+----------------  -------
+all                     1
+branch_mutations        1
+build_tree              1
+filter_samples          1
+total                   4
+
+Select jobs to execute...
+Execute 1 jobs...
+[Sat Mar  7 10:31:56 2026]
+localcheckpoint filter_samples:
+    input: data/strain_ids/Lineage7_strain.txt
+    output: depth80/lineage_tree/Lineage7_depth_80.txt
+    jobid: 3
+    reason: Missing output files: depth80/lineage_tree/Lineage7_depth_80.txt
+    resources: tmpdir=/tmp
+DAG of jobs will be updated after completion.
+[Sat Mar  7 10:31:57 2026]
+Finished jobid: 3 (Rule: filter_samples)
+1 of 4 steps (25%) done
+Updating checkpoint dependencies.
+Select jobs to execute...
+Execute 1 jobs...
+[Sat Mar  7 10:31:57 2026]
+localrule build_tree:
+    input: depth80/lineage_tree/Lineage7_depth_80.txt, data/old_cfa/Lineage7_delete.pos, data/tb.ancestor.fasta
+    output: depth80/lineage_tree/Lineage7_btp.treefile, depth80/lineage_tree/Lineage7_btp.state, depth80/lineage_tree/Lineage7.pos
+    jobid: 2
+    reason: Missing output files: depth80/lineage_tree/Lineage7_btp.state, depth80/lineage_tree/Lineage7_btp.treefile, depth80/lineage_tree/Lineage7.pos
+    threads: 4
+    resources: tmpdir=/tmp, mem_mb=200000, mem=200 GB, mem_mib=190735
+[Sat Mar  7 10:32:20 2026]
+Finished jobid: 2 (Rule: build_tree)
+2 of 4 steps (50%) done
+Select jobs to execute...
+Execute 1 jobs...
+[Sat Mar  7 10:32:20 2026]
+localrule branch_mutations:
+    input: depth80/lineage_tree/Lineage7_btp.treefile, depth80/lineage_tree/Lineage7_btp.state, depth80/lineage_tree/Lineage7.pos, data/RLC_lowmapK50E4_H37Rv_pos.txt, data/tb.ancestor.fasta
+    output: depth80/lineage_ann/Lineage7.ann
+    jobid: 1
+    reason: Missing output files: depth80/lineage_ann/Lineage7.ann; Input files updated by another job: depth80/lineage_tree/Lineage7_btp.state, depth80/lineage_tree/Lineage7_btp.treefile, depth80/lineage_tree/Lineage7.pos
+    threads: 4
+    resources: tmpdir=/tmp, mem_mb=20000, mem=20 GB, mem_mib=19074
+[Sat Mar  7 10:32:33 2026]
+Finished jobid: 1 (Rule: branch_mutations)
+3 of 4 steps (75%) done
+Select jobs to execute...
+Execute 1 jobs...
+[Sat Mar  7 10:32:33 2026]
+localrule all:
+    input: depth80/lineage_ann/Lineage7.ann
+    jobid: 0
+    reason: Input files updated by another job: depth80/lineage_ann/Lineage7.ann
+    resources: tmpdir=/tmp
+[Sat Mar  7 10:32:33 2026]
+Finished jobid: 0 (Rule: all)
+4 of 4 steps (100%) done
+Complete log(s): /mnt/c/Users/Administrator/Documents/UNC_projects/MTB_phy_db/lingbo/EvoResist/.snakemake/log/2026-03-07T103156.064601.snakemake.log

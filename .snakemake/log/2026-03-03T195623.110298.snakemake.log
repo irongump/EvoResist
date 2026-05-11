@@ -1,0 +1,54 @@
+Config file config/config.yaml is extended by additional config specified via the command line.
+Assuming unrestricted shared filesystem usage.
+host: DESKTOP-G74MPKE
+Building DAG of jobs...
+Updating checkpoint dependencies.
+Using shell: /usr/bin/bash
+Provided cores: 4
+Rules claiming more threads will be scaled down.
+Job stats:
+job                 count
+----------------  -------
+all                     1
+branch_mutations        1
+build_tree              1
+total                   3
+
+Select jobs to execute...
+Execute 1 jobs...
+[Tue Mar  3 19:56:23 2026]
+localrule build_tree:
+    input: depth_30/lineage_tree/Lineage7_strain_depth_30.txt, data/snv/ERR1971849.snp, data/snv/ERR1200635.snp, data/snv/ERR4814968.snp, data/snv/ERR1200636.snp, data/snv/ERR1200617.snp, data/snv/ERR1200624.snp, data/snv/ERR1971864.snp, data/snv/ERR1200633.snp, data/snv/ERR1971857.snp, data/snv/ERR1971856.snp, data/snv/ERR1971865.snp, data/snv/SRR18911237.snp, data/snv/ERR1971873.snp, data/snv/ERR1971869.snp, data/snv/ERR1971867.snp, data/snv/ERR1971877.snp, data/snv/ERR1971866.snp, data/snv/ERR1971858.snp, data/snv/ERR1971872.snp, data/snv/ERR1200631.snp, data/snv/ERR400415.snp, data/snv/ERR1971874.snp, data/snv/ERR756346.snp, data/snv/ERR1200639.snp, data/snv/ERR1971863.snp, data/snv/ERR1971861.snp, data/snv/ERR1971859.snp, data/snv/ERR1971860.snp, data/snv/ERR1971854.snp, data/snv/ERR1971850.snp, data/snv/ERR1971876.snp, data/snv/ERR1971870.snp, data/snv/ERR756345.snp, data/snv/ERR1971871.snp, data/snv/ERR1200603.snp, data/snv/ERR1971868.snp, data/snv/ERR1200612.snp, data/snv/ERR1200610.snp, data/snv/ERR1200613.snp, data/snv/ERR756348.snp, data/snv/ERR1200619.snp, data/snv/ERR1200604.snp, data/snv/ERR756347.snp, data/snv/ERR1971852.snp, data/snv/ERR756344.snp, data/snv/ERR1971853.snp, data/snv/ERR1200634.snp, data/snv/ERR1200625.snp, data/snv/ERR1200623.snp, data/snv/ERR1200618.snp, data/snv/ERR1200606.snp, data/snv/ERR1200602.snp, data/snv/ERR1971862.snp, data/snv/ERR1971855.snp, data/tb.ancestor.concatenated.fasta, data/tb.ancestor.fasta
+    output: depth_30/lineage_tree/Lineage7_strain_btp.treefile, depth_30/lineage_tree/Lineage7_strain_btp.state
+    jobid: 2
+    reason: Missing output files: depth_30/lineage_tree/Lineage7_strain_btp.treefile, depth_30/lineage_tree/Lineage7_strain_btp.state
+    threads: 4
+    resources: tmpdir=/tmp, mem_mb=200000, mem=200 GB, mem_mib=190735
+[Tue Mar  3 19:57:18 2026]
+Finished jobid: 2 (Rule: build_tree)
+1 of 3 steps (33%) done
+Select jobs to execute...
+Execute 1 jobs...
+[Tue Mar  3 19:57:18 2026]
+localrule branch_mutations:
+    input: depth_30/lineage_tree/Lineage7_strain_btp.treefile, depth_30/lineage_tree/Lineage7_strain_btp.state, data/RLC_lowmapK50E4_H37Rv_pos.txt, data/tb.ancestor.fasta
+    output: depth_30/lineage_ann/Lineage7_strain.ann
+    jobid: 1
+    reason: Missing output files: depth_30/lineage_ann/Lineage7_strain.ann; Input files updated by another job: depth_30/lineage_tree/Lineage7_strain_btp.treefile, depth_30/lineage_tree/Lineage7_strain_btp.state
+    threads: 4
+    resources: tmpdir=/tmp, mem_mb=20000, mem=20 GB, mem_mib=19074
+[Tue Mar  3 19:57:25 2026]
+Finished jobid: 1 (Rule: branch_mutations)
+2 of 3 steps (67%) done
+Select jobs to execute...
+Execute 1 jobs...
+[Tue Mar  3 19:57:25 2026]
+localrule all:
+    input: depth_30/lineage_ann/Lineage7_strain.ann
+    jobid: 0
+    reason: Input files updated by another job: depth_30/lineage_ann/Lineage7_strain.ann
+    resources: tmpdir=/tmp
+[Tue Mar  3 19:57:25 2026]
+Finished jobid: 0 (Rule: all)
+3 of 3 steps (100%) done
+Complete log(s): /mnt/c/Users/Administrator/Documents/UNC_projects/MTB_phy_db/lingbo/EvoResist/.snakemake/log/2026-03-03T195623.110298.snakemake.log
