@@ -12,11 +12,11 @@ Pipeline Steps (Steps 1–7: convergent evolution analysis; Steps 8–19: DR mut
   5. ancestor_mutations - Ancestor mutations extraction (prior to lineage/sublineage diversification)
   6. merge_annotations / stat_convergent / filter_convergent - Count convergent mutations by codon
   7. simulation       - GTR+Gamma simulation of mutations under a null distribution
-  8. dr_train_test_split  - Stratify 70/30 train-test for sensitivity analysis
-  9. dr_filter_variants   - Include convergent SNPs or indels from DR genes and promoter regions
-  10. dr_initial_list      - Build annotated initial candidate variant list per drug
+  8. dr_train_test_split  - Stratify 70/30 train-test for sensitivity analysis to identify drug-specific convergent threshold
+  9. dr_filter_variants   - Include all SNPs (within primary DR genes and promoter regions) and indels (within primary DR genes)
+  10. dr_initial_list      - Identify convergent SNP candidates within primary DR genes for each drug
   11. dr_make_list1         - Apply threshold × promoter-length combination to generate list1
-  12. dr_loo_evaluate       - Leave-one-out evaluation of a variant list on train or test split
+  12. dr_loo_evaluate       - Leave-one-out evaluation of a variant list; generate results on train or test split
   13. dr_make_list2         - Apply LOO filtering criteria to generate refined list2
   14. dr_select_best_threshold - Select best convergence threshold per drug from threshold sweep
   15. dr_select_best_promoter  - Select best promoter length per drug from promoter-length sweep
@@ -47,8 +47,7 @@ Key configuration options (config/config.yaml):
                 Each value must correspond to a file named
                 <strain_ids_dir>/<lineage>_strain.txt.
                 When omitted all lineages in strain_ids_dir are processed.
-  dr_best_promoters - Per-drug best promoter length (bp) determined after the
-                promoter-length sweep (step9/dr_selection) and
+  dr_best_promoters - Per-drug best promoter length (bp) determined after
                 step11/dr_best_promoter. Override per drug via:
                   dr_best_promoters: {RIF: 400, INH: 300, ...}
                 Defaults to 500 for any drug not explicitly configured.
@@ -167,7 +166,7 @@ if INPUT_TYPE == "fastq":
     ALL_SAMPLES = _found
 
 # =============================================================================
-# DR mutation selection analysis configuration (Step 7+)
+# DR mutation selection analysis configuration (Step 8+)
 # =============================================================================
 DR_DIR             = config.get("dr_results_dir", "dr_results")
 _DR_SNP_SOURCE     = config.get(
@@ -189,8 +188,8 @@ _DR_BEST_THRESHOLDS = {
     "BDQ": 3, "AMK": 6, "STM": 5, "ETO": 4, "KAN": 6, "CAP": 6, "LZD": 5,
 }
 
-# Best promoter length (bp) per drug, determined after running the promoter-
-# length sweep (step9/dr_selection) and step11/dr_best_promoter.
+# Best promoter length (bp) per drug, determined after running
+# step11/dr_best_promoter.
 # Defaults to 500 (the threshold-sweep promoter value) for any drug not
 # explicitly set. Override via config: dr_best_promoters: {RIF: 400, ...}
 _DR_BEST_PROMOTERS_CFG = config.get("dr_best_promoters", {})
@@ -1015,10 +1014,10 @@ rule dr_train_test_split:
 
 
 # =============================================================================
-# Step 9: DR – Filter Convergent Variants to Drug Resistance Genes and Promoter Regions
+# Step 9: DR – Filter Variants to Primary Drug-Resistance Regions
 # =============================================================================
-# Applies drug-specific genomic region filters to include convergent SNPs or
-# indels from drug resistance genes and promoter regions.
+# Includes all SNPs within primary drug-resistance genes and promoter regions,
+# and all indels within primary drug-resistance genes.
 
 rule dr_filter_variants:
     input:
@@ -1089,10 +1088,10 @@ rule dr_filter_variants:
 
 
 # =============================================================================
-# Step 10: DR – Build Annotated Initial Candidate Variant List (per drug)
+# Step 10: DR – Build Initial Convergent SNP Candidate List (per drug)
 # =============================================================================
-# Merges convergent SNPs and indels with WHO catalogue annotations, assigns
-# gene-body / promoter labels, and aggregates convergence event counts.
+# Identifies convergent SNP candidates within primary drug-resistance genes
+# for each drug and prepares the initial candidate list.
 # Requires per-drug WHO catalogue files placed at:
 #   <dr_results_dir>/<drug>/WHO_list/WHO_list_allGroup.txt
 
@@ -1149,11 +1148,12 @@ rule dr_make_list1:
 
 
 # =============================================================================
-# Step 12: DR – Leave-One-Out Evaluation of a Variant List on Train or Test Split
+# Step 12: DR – Leave-One-Out Evaluation of a Variant List
 # =============================================================================
-# Computes per-isolate predictions, overall metrics (sensitivity, specificity,
-# PPV, NPV with 95 % Wilson CIs), and per-variant leave-one-out deltas.
-# Wildcard `listver` is `list1` or `list2`; `split` is `train` or `test`.
+# Performs leave-one-out evaluation for a specified variant list on the
+# training split, and generates prediction results for the same list on either
+# the training or test split. Wildcard `listver` is `list1` or `list2`; `split`
+# is `train` or `test`.
 
 rule dr_loo_evaluate:
     input:
@@ -1252,7 +1252,8 @@ rule dr_select_best_threshold:
 # =============================================================================
 # Reads list2 train/test metrics from the promoter-length sweep (best threshold
 # per drug, promoter 100–1000 bp) and selects the best promoter length per drug
-# by the same MCC criterion. Writes best_promoters.tsv and best_promoters.sh.
+# by maximising MCC on the test set. Writes best_promoters.tsv and
+# best_promoters.sh.
 
 rule dr_select_best_promoter:
     input:
@@ -1314,9 +1315,8 @@ rule dr_final_evaluate:
 # =============================================================================
 # Step 17: DR – Incremental Gain Evaluation
 # =============================================================================
-# Ranks EvoResist-specific variants (List2 - WHO G1+G2) by their marginal
-# improvement in sensitivity, specificity, and PPV relative to the shared
-# baseline (List1 intersection List2). Produces a per-variant ranking TSV.
+# Evaluates the incremental gain of EvoResist variants relative to the overlap
+# between EvoResist and WHO G1+G2 used as the baseline.
 
 rule dr_gain_evaluation:
     input:
@@ -1346,10 +1346,8 @@ rule dr_gain_evaluation:
 # =============================================================================
 # Step 18: DR – LASSO Logistic Regression Analysis
 # =============================================================================
-# Fits a penalised logistic regression (L1) on the EvoResist final list with
-# lineage covariates and variant x lineage interaction terms. Cross-validates
-# regularisation strength, then performs an unpenalised refit on LASSO-selected
-# features, yielding per-variant ORs, p-values, and 95% CIs.
+# Runs LASSO logistic regression for variant-phenotype association adjusted for
+# lineage and reports selected-variant effect estimates.
 
 rule dr_lasso_analysis:
     input:
@@ -1382,9 +1380,8 @@ rule dr_lasso_analysis:
 # =============================================================================
 # Step 19: DR – Compare EvoResist vs WHO Performance
 # =============================================================================
-# Computes sensitivity, specificity, PPV, and NPV for EvoResist, WHO G1+G2,
-# and WHO G1 across all 13 drugs. Runs three analyses: overall, stratified by
-# Lineage, and stratified by pdst_method2. McNemar p-values are BH-adjusted.
+# Compares prediction performance between EvoResist and WHO catalogues (G1 and
+# G1+G2), both overall and in stratified analyses.
 
 rule dr_compare_who_evoresist:
     input:
