@@ -17,18 +17,18 @@ The workflow consists of **19 steps** (Steps 1–7: convergent evolution analysi
 | 5 | `ancestor_mutations` | Ancestor mutations extraction (prior to lineage/sublineage diversification) |
 | 6 | `merge_annotations` → `stat_convergent` → `filter_convergent` | Count convergent mutations by codon |
 | 7 | `simulation` | GTR+Gamma simulation of mutations under a null distribution |
-| 8 | `dr_train_test_split` | Stratify 70/30 train-test for sensitivity analysis to identify drug specific convergent threshold |
-| 9 | `dr_filter_variants` | Include convergent SNPs or indels from drug resistance genes and promoter regions |
-| 10 | `dr_initial_list` | Build annotated initial candidate variant list per drug |
-| 11 | `dr_make_list1` | Apply threshold × promoter-length combination to generate list1 |
-| 12 | `dr_loo_evaluate` | Leave-one-out evaluation of a variant list on train or test split |
-| 13 | `dr_make_list2` | Apply LOO filtering criteria to generate refined list2 |
-| 14 | `dr_select_best_threshold` | Select best convergence threshold per drug from threshold sweep (maximise MCC on test set) |
-| 15 | `dr_select_best_promoter` | Select best promoter length per drug from promoter-length sweep (maximise MCC on test set) |
+| 8 | `dr_train_test_split` | Stratify 70/30 train-test for sensitivity analysis to identify drug-specific convergent threshold |
+| 9 | `dr_filter_variants` | Include all SNPs (within primary drug resistance genes and in the promoter regions) and indels (within the primary drug resistance genes) |
+| 10 | `dr_initial_list` | Identify all convergent SNPs within the primary drug-resistance genes for each drug |
+| 11 | `dr_make_list1` | Apply threshold × promoter-length combination to generate the candidate variant list |
+| 12 | `dr_loo_evaluate` | Perform leave-one-out evaluation of the specified variant list on the training set, and generate prediction results for the same list on either the training or test set |
+| 13 | `dr_make_list2` | Apply LOO filtering criteria |
+| 14 | `dr_select_best_threshold` | Select best convergence threshold per drug from candidate thresholds (maximise MCC on test set) |
+| 15 | `dr_select_best_promoter` | Select best promoter length per drug from candidate promoter-length (maximise MCC on test set) |
 | 16 | `dr_final_evaluate` | Final evaluation on full cohort for EvoResist, WHO G1+G2, and WHO G1 catalogues |
-| 17 | `dr_gain_evaluation` | Incremental gain of EvoResist variants relative to WHO G1+G2 baseline |
+| 17 | `dr_gain_evaluation` | Evaluation of the incremental gain of EvoResist variants relative to the overlap between EvoResist and WHO Group 1 + Group 2 used as the baseline |
 | 18 | `dr_lasso_analysis` | LASSO logistic regression for variant-phenotype association adjusted for lineage |
-| 19 | `dr_compare_who_evoresist` | Compare EvoResist vs WHO G1 and G1+G2 performance (overall and stratified) |
+| 19 | `dr_compare_who_evoresist` | Comparison of prediction performance between EvoResist and WHO Group 1 or Group 1 + Group 2 mutations, overall and stratified |
 
 ---
 
